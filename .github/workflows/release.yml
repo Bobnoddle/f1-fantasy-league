@@ -13,46 +13,40 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
       with:
-        python-version: "3.12"
+        fetch-depth: 0  # Fetch full history for changelog
 
-    - name: Install dependencies
+    - name: Generate Release Notes
+      id: changelog
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install build
-
-    - name: Extract version from tag
-      id: version
-      run: |
-        VERSION=${GITHUB_REF#refs/tags/v}
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-        echo "Release version: $VERSION"
-
-    - name: Create release notes
-      run: |
-        echo "## What's Changed" > RELEASE_NOTES.md
-        git log --oneline $(git describe --tags --abbrev=0 HEAD^)..HEAD >> RELEASE_NOTES.md 2>/dev/null || echo "Initial release" >> RELEASE_NOTES.md
+        # Get the current and previous tag
+        CURRENT_TAG=${GITHUB_REF#refs/tags/}
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${CURRENT_TAG}^ 2>/dev/null || echo "")
+        
+        # Generate changelog
+        if [ -z "$PREVIOUS_TAG" ]; then
+          # First release
+          CHANGELOG=$(git log --oneline --no-decorate)
+        else
+          CHANGELOG=$(git log --oneline ${PREVIOUS_TAG}..${CURRENT_TAG})
+        fi
+        
+        # Write to output
+        {
+          echo "CHANGELOG<<EOF"
+          echo "## What's Changed"
+          echo ""
+          echo "$CHANGELOG"
+          echo ""
+          echo "**Full Changelog:** https://github.com/Bobnoddle/f1-fantasy-league/compare/${PREVIOUS_TAG}...${GITHUB_REF#refs/tags/}"
+          echo "EOF"
+        } >> $GITHUB_OUTPUT
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
-        body_path: RELEASE_NOTES.md
+        body: ${{ steps.changelog.outputs.CHANGELOG }}
         draft: false
         prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Build distribution
-      run: |
-        python -m build
-
-    - name: Upload artifacts to release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: dist/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
