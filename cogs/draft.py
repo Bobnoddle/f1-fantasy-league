@@ -591,6 +591,52 @@ class DraftCog(commands.Cog, name="Draft"):
         if task and not task.done():
             task.cancel()
 
+    async def _send_with_retry(
+        self,
+        channel: discord.abc.Messageable,
+        **kwargs,
+    ) -> discord.Message | None:
+        """Send a message with retry logic for transient Discord API errors.
+        
+        Handles 503, 504, and connection errors with exponential backoff.
+        Returns message if successful, None if all retries exhausted.
+        """
+        max_retries = 3
+        base_delay = 1
+        
+        for attempt in range(max_retries):
+            try:
+                return await channel.send(**kwargs)  # type: ignore[return-value]
+            except (discord.DiscordServerError, discord.HTTPException) as e:
+                # Transient errors: 503 Service Unavailable, 504 Gateway Timeout
+                is_transient = (
+                    (isinstance(e, discord.DiscordServerError) and e.status in (503, 504))
+                    or (isinstance(e, discord.HTTPException) and e.status in (503, 504, 429))
+                )
+                
+                if not is_transient or attempt >= max_retries - 1:
+                    log.exception(
+                        "Failed to send message (attempt %d/%d): %s",
+                        attempt + 1,
+                        max_retries,
+                        e,
+                    )
+                    return None
+                
+                delay = base_delay * (2 ** attempt)
+                log.warning(
+                    "Transient error on send (attempt %d/%d), retrying in %.1fs",
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+            except Exception as e:
+                log.exception("Unexpected error on send: %s", e)
+                return None
+        
+        return None
+
     async def _fetch_available_drivers(self, guild_id: int) -> list:
         db = await get_db()
         async with db.execute(
@@ -746,7 +792,10 @@ class DraftCog(commands.Cog, name="Draft"):
             await db.commit()
 
         # Separate ping so the user gets a notification
-        await channel.send(f"<@{current_user_id}>, it's your turn to pick!")  # type: ignore[union-attr]
+        await self._send_with_retry(
+            channel,  # type: ignore[arg-type]
+            content=f"<@{current_user_id}>, it's your turn to pick!"
+        )
 
         # Schedule timeout task — cancels itself if _do_pick is called first
         self._cancel_timeout(guild_id)  # cancel any previous (safety)

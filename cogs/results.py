@@ -471,50 +471,53 @@ class ResultsCog(commands.Cog, name="Results"):
             team_race_points.items(), key=lambda kv: kv[1], reverse=True
         )
 
-        label = _RACE_TYPE_LABEL.get(race_type, race_type.title() + " Results")
-        title = f"🏁 {round_name} — {label}"
+        label = _RACE_TYPE_LABEL.get(race_type, race_type.upper() + " RESULTS")
+        title = f"🏁 {round_name.upper()} — {label.upper()}"
 
         lines: list[str] = []
         for rank, (team_id, total_pts) in enumerate(sorted_teams):
-            medal = _pos_emoji(rank)
             user_name = team_name_map.get(team_id, f"Team {team_id}")
-
+            
+            # Formatted leaderboard line
+            # Rank 1-3 get medals, otherwise plain text
+            rank_display = _pos_emoji(rank) if rank < 3 else f"{rank+1:02}"
+            line = f"{rank_display} **{user_name:<15}** | {total_pts:>3.0f} PTS"
+            
             contribs = sorted(
                 team_driver_contrib.get(team_id, []),
                 key=lambda x: x[1], reverse=True,
             )
-            contrib_str = ", ".join(
-                f"{name}: +{pts:.0f}" for name, pts in contribs if pts != 0
+            # Filter non-zero contributors for cleaner view
+            driving_text = ", ".join(
+                f"{name}:+{pts:.0f}" for name, pts in contribs if pts != 0
             )
-
-            line = f"{medal} **{user_name}**  +{total_pts:.0f} pts"
-            if contrib_str:
-                line += f"  ({contrib_str})"
+            if driving_text:
+                line += f"\n   `{driving_text}`"
             lines.append(line)
 
         description = (
-            "\n".join(lines) if lines else "*No fantasy teams have scored yet.*"
+            "\n".join(lines) if lines else "```\nNO SCORES RECORDED\n```"
         )
-        embed = discord.Embed(
-            title=title,
-            description=description,
-            colour=0x3498DB,
-        )
+        embed = info_embed(title, description)
 
-        # Top-scoring driver across all participants
+        # Top stats as focused fields
         if driver_pts_map:
             top_code = max(driver_pts_map, key=lambda c: driver_pts_map[c])
             top_pts = driver_pts_map[top_code]
             top_name = driver_name_map.get(top_code, top_code)
             embed.add_field(
-                name="🏆 Top Driver",
-                value=f"{top_name} ({top_code}) — {top_pts:.0f} pts",
+                name="TOP DRIVER",
+                value=f"```\n{top_name}\n{top_pts:.0f} PTS\n```",
                 inline=True,
             )
 
         if fastest_lap_code:
             fl_name = driver_name_map.get(fastest_lap_code, fastest_lap_code)
-            embed.add_field(name="🏎️ Fastest Lap", value=fl_name, inline=True)
+            embed.add_field(
+                name="FASTEST LAP", 
+                value=f"```\n{fl_name}\n```", 
+                inline=True
+            )
 
         try:
             await channel.send(embed=embed)

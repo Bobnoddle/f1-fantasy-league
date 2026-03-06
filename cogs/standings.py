@@ -91,7 +91,7 @@ def _breakdown_str(raw: Optional[str]) -> str:
 
 def _build_rules_embed() -> discord.Embed:
     embed = discord.Embed(
-        title="📋 F1 Fantasy — Scoring Rules",
+        title="F1 FANTASY — SCORING RULES",
         colour=_GREY,
     )
 
@@ -102,12 +102,13 @@ def _build_rules_embed() -> discord.Embed:
         seen.setdefault(pts, []).append(pos)
     for pts, positions in sorted(seen.items(), key=lambda kv: -kv[0]):
         if len(positions) == 1:
-            race_pts_parts.append(f"P{positions[0]}={pts}")
+            race_pts_parts.append(f"P{positions[0]:<2} = {pts:>2} pts")
         else:
-            race_pts_parts.append(f"P{positions[0]}–{positions[-1]}={pts}")
+            race_pts_parts.append(f"P{positions[0]}–{positions[-1]:<2} = {pts:>2} pts")
+    race_value = "```\n" + "\n".join(race_pts_parts) + "\n```"
     embed.add_field(
-        name="Race Finish Points",
-        value=" · ".join(race_pts_parts),
+        name="RACE FINISH POINTS",
+        value=race_value,
         inline=False,
     )
 
@@ -120,43 +121,52 @@ def _build_rules_embed() -> discord.Embed:
         if pts == 0:
             continue  # skip zero entries — implied
         if len(positions) == 1:
-            quali_pts_parts.append(f"P{positions[0]}={pts}")
+            quali_pts_parts.append(f"P{positions[0]:<2} = {pts:>2} pts")
         else:
-            quali_pts_parts.append(f"P{positions[0]}–{positions[-1]}={pts}")
-    quali_pts_parts.append("P16–20=0")
+            quali_pts_parts.append(f"P{positions[0]}–{positions[-1]:<2} = {pts:>2} pts")
+    quali_pts_parts.append("P16–20 =  0 pts")
+    quali_value = "```\n" + "\n".join(quali_pts_parts) + "\n```"
     embed.add_field(
-        name="Qualifying Points (P1–P15)",
-        value=" · ".join(quali_pts_parts),
+        name="QUALIFYING POINTS (P1–P15)",
+        value=quali_value,
         inline=False,
     )
 
     # ── Bonuses & penalties ─────────────────────────────────────────────────
     bonuses = (
-        f"✅ Race finished: +{config.COMPLETION_BONUS}\n"
-        f"⬆️ Position gained: +{config.POSITION_GAIN_BONUS}/place\n"
-        f"⚡ Fastest lap: +{config.FASTEST_LAP_BONUS}\n"
-        f"❌ DNF: 0 (natural floor)\n"
-        f"🚫 DSQ: {config.DSQ_PENALTY}"
+        "```\n"
+        f"FINISH       : +{config.COMPLETION_BONUS} pts\n"
+        f"POSITION GAIN: +{config.POSITION_GAIN_BONUS} pts / place\n"
+        f"FASTEST LAP  : +{config.FASTEST_LAP_BONUS} pts\n"
+        f"DNF          :  0 pts (natural floor)\n"
+        f"DSQ          : {config.DSQ_PENALTY} pts\n"
+        "```"
     )
-    embed.add_field(name="Bonuses & Penalties", value=bonuses, inline=False)
+    embed.add_field(name="BONUSES & PENALTIES", value=bonuses, inline=False)
 
     # ── Sprint ──────────────────────────────────────────────────────────────
     embed.add_field(
-        name="Sprint Races",
+        name="SPRINT RACES",
         value=(
-            "Finish points at ½ value (rounded down)\n"
-            "Position gain and completion bonus at full value"
+            "```\n"
+            "Finish points at 1/2 value (rounded down)\n"
+            "Position gain and completion bonus at full value\n"
+            "```"
         ),
         inline=False,
     )
 
     # ── Draft ───────────────────────────────────────────────────────────────
     embed.add_field(
-        name="Draft",
+        name="DRAFT",
         value=(
-            f"Snake format · Auto-scaled team size: floor(22 ÷ players)\n"
-            f"Random order · {config.DRAFT_TIMEOUT // 60} min pick timeout · "
-            f"Auto-pick on timeout"
+            "```\n"
+            f"FORMAT      : Snake\n"
+            f"TEAM SIZE   : Auto-scaled (floor(22 / players))\n"
+            f"ORDER       : Random\n"
+            f"TIMEOUT     : {config.DRAFT_TIMEOUT // 60} min pick timeout\n"
+            f"AUTO-PICK   : On timeout\n"
+            "```"
         ),
         inline=False,
     )
@@ -215,32 +225,31 @@ class StandingsCog(commands.Cog, name="Standings"):
             race_row = await cur.fetchone()
         races_scored = race_row["cnt"] if race_row else 0
 
-        embed = discord.Embed(
-            title=f"🏆 F1 Fantasy Standings — {year}",
-            colour=_GOLD,
-        )
+        title = f"🏆 SEASON STANDINGS — {year}"
+        embed = info_embed(title, "")
 
         if not rows:
-            embed.description = "No teams have joined yet."
+            embed.description = "```\nNO TEAMS REGISTERED\n```"
             await interaction.followup.send(embed=embed)
             return
 
         lines: list[str] = []
+        # Header for the table
+        lines.append("POS  TEAM            | POINTS")
+        lines.append("──── ────────────────|───────")
+        
         for idx, row in enumerate(rows, start=1):
-            pos_icon = medal(idx)
-            name = row["user_name"] or f"<@{row['user_id']}>"
-            pts  = _fmt_pts(row["total"])
-            lines.append(f"{pos_icon} **{name}**  {pts}")
+            name = (row["user_name"] or "Unknown")[:15]
+            pts  = row["total"] or 0
+            # Use medals for top 3, numbers for others
+            pos_str = _pos_emoji(idx) if idx <= 3 else f" {idx:2} "
+            lines.append(f"{pos_str} {name:<15} | {pts:>5.0f}")
 
-        desc = "\n".join(lines)
+        desc = "```\n" + "\n".join(lines) + "\n```"
         if races_scored == 0:
-            footer = "No races scored yet. Standings will appear after the first GP."
+            footer = f"DRAFT COMPLETED · SEASON {year}"
         else:
-            footer = f"{races_scored} race{'s' if races_scored != 1 else ''} scored · Season {year}"
-
-        # Truncate if needed (4096 char limit)
-        if len(desc) > 4000:
-            desc = desc[:4000] + "\n…"
+            footer = f"{races_scored} RACE{'S' if races_scored != 1 else ''} SCORED · SEASON {year}"
 
         embed.description = desc
         embed.set_footer(text=footer)
