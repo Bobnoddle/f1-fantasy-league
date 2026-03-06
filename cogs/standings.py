@@ -242,7 +242,7 @@ class StandingsCog(commands.Cog, name="Standings"):
             name = (row["user_name"] or "Unknown")[:15]
             pts  = row["total"] or 0
             # Use medals for top 3, numbers for others
-            pos_str = _pos_emoji(idx) if idx <= 3 else f" {idx:2} "
+            pos_str = medal(idx)
             lines.append(f"{pos_str} {name:<15} | {pts:>5.0f}")
 
         desc = "```\n" + "\n".join(lines) + "\n```"
