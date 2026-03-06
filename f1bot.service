@@ -1,0 +1,16 @@
+[Unit]
+Description=F1 Fantasy Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/f1-bot
+EnvironmentFile=/home/pi/f1-bot/.env
+ExecStart=/home/pi/f1-bot/venv/bin/python bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
