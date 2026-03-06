@@ -1,5 +1,6 @@
 import os
 import pathlib
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,7 +17,7 @@ except Exception as _e:
 if _raw_db_path.startswith("..") or "/../" in _raw_db_path or _raw_db_path.startswith("/etc") or _raw_db_path.startswith("/sys"):
     raise ValueError(f"DB_PATH '{_raw_db_path}' looks unsafe — refusing to start.")
 DB_PATH: str = _raw_db_path
-SEASON_YEAR: int = int(os.getenv("SEASON_YEAR", "2026"))
+SEASON_YEAR: int = int(os.getenv("SEASON_YEAR", str(datetime.now().year)))
 
 # ---------------------------------------------------------------------------
 # Scoring constants
