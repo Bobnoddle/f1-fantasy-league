@@ -12,6 +12,7 @@ from discord.ext import commands
 import config
 from config import TOKEN
 from db.connection import get_db, init_db, close_db
+from utils.embeds import error_embed
 
 if TYPE_CHECKING:
     from api.jolpica import JolpicaClient
@@ -63,7 +64,6 @@ class F1Bot(commands.Bot):
             error: app_commands.AppCommandError,
         ) -> None:
             if isinstance(error, app_commands.CheckFailure):
-                from utils.embeds import error_embed
                 msg = str(error) or "You do not have permission to use this command."
                 try:
                     await interaction.response.send_message(
@@ -76,7 +76,6 @@ class F1Bot(commands.Bot):
             else:
                 log.error("Unhandled app command error:\n%s", traceback.format_exc())
                 generic = "An unexpected error occurred. Please try again."
-                from utils.embeds import error_embed
                 try:
                     await interaction.response.send_message(
                         embed=error_embed(generic), ephemeral=True
@@ -102,4 +101,9 @@ class F1Bot(commands.Bot):
 bot = F1Bot()
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     bot.run(TOKEN)

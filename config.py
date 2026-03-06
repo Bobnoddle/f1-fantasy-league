@@ -1,4 +1,5 @@
 import os
+import pathlib
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,7 +8,14 @@ TOKEN: str = os.getenv("DISCORD_TOKEN", "")
 if not TOKEN:
     raise ValueError("DISCORD_TOKEN environment variable is not set.")
 
-DB_PATH: str = os.getenv("DB_PATH", "f1-fantasy-league.db")
+_raw_db_path: str = os.getenv("DB_PATH", "f1-fantasy-league.db")
+try:
+    _resolved = pathlib.Path(_raw_db_path).resolve()
+except Exception as _e:
+    raise ValueError(f"DB_PATH is invalid: {_e}") from _e
+if _raw_db_path.startswith("..") or "/../" in _raw_db_path or _raw_db_path.startswith("/etc") or _raw_db_path.startswith("/sys"):
+    raise ValueError(f"DB_PATH '{_raw_db_path}' looks unsafe — refusing to start.")
+DB_PATH: str = _raw_db_path
 SEASON_YEAR: int = int(os.getenv("SEASON_YEAR", "2026"))
 
 # ---------------------------------------------------------------------------

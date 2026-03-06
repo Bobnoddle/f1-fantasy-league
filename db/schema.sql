@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS score (
     driver_id       INTEGER NOT NULL REFERENCES driver(id),
     points          REAL NOT NULL,
     breakdown       TEXT,
-    UNIQUE(race_id, driver_id)
+    UNIQUE(race_id, team_id, driver_id)
 );
 
 CREATE TABLE IF NOT EXISTS season_archive (
@@ -97,5 +97,6 @@ CREATE TABLE IF NOT EXISTS season_archive (
     season_year     INTEGER NOT NULL,
     champion_user   INTEGER,
     final_standings TEXT,
-    archived_at     TEXT DEFAULT (datetime('now'))
+    archived_at     TEXT DEFAULT (datetime('now')),
+    UNIQUE(guild_id, season_year)
 );

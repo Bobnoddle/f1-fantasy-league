@@ -35,21 +35,14 @@ async def init_db() -> None:
     """Read schema.sql and execute every statement against the database.
 
     Safe to call on every startup — all CREATE TABLE statements use
-    IF NOT EXISTS.
+    IF NOT EXISTS.  Uses executescript so that semicolons inside SQL
+    string literals are never misinterpreted as statement separators.
     """
     db = await get_db()
     schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
-    # executescript requires a plain connection; use executemany-style loop
-    # so we stay within the async context and respect the existing connection.
-    statements = [
-        stmt.strip()
-        for stmt in schema_sql.split(";")
-        if stmt.strip() and not stmt.strip().startswith("--")
-    ]
-    async with db.cursor() as cur:
-        for statement in statements:
-            await cur.execute(statement)
-    await db.commit()
+    # executescript commits any open transaction first, then executes all
+    # statements atomically — safe and correct for schema initialisation.
+    await db.executescript(schema_sql)
 
 
 async def close_db() -> None:
