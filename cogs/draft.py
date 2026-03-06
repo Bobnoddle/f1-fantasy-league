@@ -5,6 +5,8 @@ import json
 import random
 from typing import Optional
 
+import logging
+
 import aiosqlite
 import discord
 from discord import app_commands
@@ -14,6 +16,8 @@ import config
 from db.connection import get_db
 from utils.checks import is_admin, league_exists, draft_active
 from utils.embeds import error_embed, success_embed, info_embed
+
+log = logging.getLogger(__name__)
 
 # ── Constructor colour mapping ────────────────────────────────────────────────
 _CONSTRUCTOR_EMOJI: dict[str, str] = {
@@ -509,6 +513,76 @@ class DraftCog(commands.Cog, name="Draft"):
         self.bot = bot
         # Tracks pending pick-timeout tasks keyed by guild_id
         self._timeout_tasks: dict[int, asyncio.Task] = {}
+
+    async def cog_load(self) -> None:
+        """Re-register persistent views for open/active drafts after a restart.
+
+        Without this, any button or select posted before a bot restart will
+        produce "This interaction failed" because discord.py has no handler
+        for the interaction — the view object was lost from memory.
+        """
+        async def _restore() -> None:
+            await self.bot.wait_until_ready()
+            db = await get_db()
+
+            # ── Re-register JoinViews for 'open' drafts ───────────────────
+            async with db.execute(
+                "SELECT guild_id FROM draft_state WHERE status = 'open'"
+            ) as cur:
+                open_rows = await cur.fetchall()
+            for row in open_rows:
+                self.bot.add_view(JoinView(self, row["guild_id"]))
+                log.info(
+                    "cog_load: restored JoinView for guild %d", row["guild_id"]
+                )
+
+            # ── Re-register DriverSelectViews for 'active' drafts ─────────
+            async with db.execute(
+                """
+                SELECT guild_id, current_pick, pick_order_json
+                FROM   draft_state
+                WHERE  status = 'active'
+                """
+            ) as cur:
+                active_rows = await cur.fetchall()
+
+            for row in active_rows:
+                guild_id: int = row["guild_id"]
+                current_pick: int = row["current_pick"]
+                pick_order: list[int] = json.loads(row["pick_order_json"] or "[]")
+                if not pick_order or current_pick >= len(pick_order):
+                    continue
+                team_id: int = pick_order[current_pick]
+
+                async with db.execute(
+                    "SELECT draft_timeout FROM league WHERE guild_id = ?",
+                    (guild_id,),
+                ) as cur2:
+                    league_row = await cur2.fetchone()
+                draft_timeout: int = (
+                    league_row["draft_timeout"]
+                    if league_row and league_row["draft_timeout"]
+                    else config.DRAFT_TIMEOUT
+                )
+
+                available = await self._fetch_available_drivers(guild_id)
+                view = DriverSelectView(
+                    cog=self,
+                    guild_id=guild_id,
+                    team_id=team_id,
+                    available_drivers=available,
+                    pick_index=current_pick,
+                    draft_channel_id=None,
+                    draft_timeout=draft_timeout,
+                )
+                self.bot.add_view(view)
+                log.info(
+                    "cog_load: restored DriverSelectView for guild %d (pick %d)",
+                    guild_id,
+                    current_pick,
+                )
+
+        asyncio.create_task(_restore())
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
