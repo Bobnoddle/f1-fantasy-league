@@ -64,6 +64,6 @@ htmlcov/
 logs/
 
 # Discord bot / application specific
-f1bot.db
-f1bot.db-shm
-f1bot.db-wal
+f1-fantasy-league.db
+f1-fantasy-league.db-shm
+f1-fantasy-league.db-wal

@@ -526,11 +526,11 @@ CREATE TABLE season_archive (
 ## 8. Project Structure
 
 ```
-f1-bot/
+f1-fantasy-league/
 ├── bot.py                  # Entry point — bot init, cog loading, startup cache
 ├── config.py               # Env vars, scoring tables, constants
 ├── requirements.txt        # discord.py, aiosqlite, aiohttp, python-dotenv
-├── f1bot.service           # systemd unit file (auto-start + restart on Pi)
+├── f1-fantasy-league.service  # systemd unit file (auto-start + restart on Pi)
 ├── .env.example            # DISCORD_TOKEN=
 │
 ├── db/
@@ -563,7 +563,7 @@ f1-bot/
 | **Network** | Outbound-only WebSocket to Discord. Hourly loop calls Jolpica only in the 36h post-race window (~48 calls/year total). No inbound ports needed. |
 | **Disk** | SQLite DB < 1 MB for a full season. Store on a USB drive (not SD card) to avoid write-wear. |
 | **Uptime** | `systemd` service with `Restart=always`. Bot auto-starts on boot, auto-restarts on crash. |
-| **Updates** | `git pull && systemctl restart f1bot` — done. |
+| **Updates** | `git pull && systemctl restart f1-fantasy-league` — done. |
 
 ### Cost Estimate
 
@@ -573,7 +573,7 @@ f1-bot/
 | **Electricity** | ~$1–2/year (Pi Zero 2 W at 0.5W idle) |
 | **Ongoing monthly cost** | **$0** |
 
-### systemd Service (`f1bot.service`)
+### systemd Service (`f1-fantasy-league.service`)
 
 ```ini
 [Unit]
@@ -584,9 +584,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/f1-bot
-EnvironmentFile=/home/pi/f1-bot/.env
-ExecStart=/home/pi/f1-bot/venv/bin/python bot.py
+WorkingDirectory=/home/pi/f1-fantasy-league
+EnvironmentFile=/home/pi/f1-fantasy-league/.env
+ExecStart=/home/pi/f1-fantasy-league/venv/bin/python bot.py
 Restart=always
 RestartSec=10
 
@@ -596,9 +596,9 @@ WantedBy=multi-user.target
 
 **Install:**
 ```bash
-sudo cp f1bot.service /etc/systemd/system/
-sudo systemctl enable f1bot
-sudo systemctl start f1bot
+sudo cp f1-fantasy-league.service /etc/systemd/system/
+sudo systemctl enable f1-fantasy-league
+sudo systemctl start f1-fantasy-league
 ```
 
 ---

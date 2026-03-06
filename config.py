@@ -7,7 +7,7 @@ TOKEN: str = os.getenv("DISCORD_TOKEN", "")
 if not TOKEN:
     raise ValueError("DISCORD_TOKEN environment variable is not set.")
 
-DB_PATH: str = os.getenv("DB_PATH", "f1bot.db")
+DB_PATH: str = os.getenv("DB_PATH", "f1-fantasy-league.db")
 SEASON_YEAR: int = int(os.getenv("SEASON_YEAR", "2026"))
 
 # ---------------------------------------------------------------------------
