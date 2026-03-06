@@ -1,10 +1,10 @@
 <div align="center">
-  <img src="assets/logo.png" alt="F1 Fantasy League" width="200" />
+  <img src="https://raw.githubusercontent.com/Bobnoddle/f1-fantasy-league/main/f1-fantasy.png" alt="F1 Fantasy League" width="200" />
   
   # F1 Fantasy League Discord Bot
   
-  [![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
-  [![Discord.py 2.3+](https://img.shields.io/badge/Discord.py-2.3+-5865F2?logo=discord&logoColor=white)](https://discordpy.readthedocs.io/)
+  [![Python 3.12](https://img.shields.io/badge/Python-3.12+-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
+  [![Discord.py 2.3](https://img.shields.io/badge/Discord.py-2.3+-5865F2?logo=discord&logoColor=white)](https://discordpy.readthedocs.io/)
   [![SQLite](https://img.shields.io/badge/SQLite-3-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
   [![License MIT](https://img.shields.io/badge/License-MIT-yellow?logo=open-source-initiative&logoColor=white)](LICENSE)
   [![CI](https://github.com/Bobnoddle/f1-fantasy-league/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Bobnoddle/f1-fantasy-league/actions/workflows/ci.yml)
