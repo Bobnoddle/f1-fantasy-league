@@ -1,0 +1,50 @@
+# Self-host. This file is the entire install story for the OSS tier.
+#
+#   cp .env.example .env   # fill in Discord client id/secret + SESSION_SECRET
+#   docker compose up -d
+#
+# Migrations run on start and are idempotent, so redeploys are safe.
+
+services:
+  app:
+    build: .
+    image: ghcr.io/bobnoddle/f1-fantasy:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgresql+asyncpg://f1fantasy:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/f1fantasy
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?set DISCORD_CLIENT_ID in .env}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?set DISCORD_CLIENT_SECRET in .env}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      ADMIN_DISCORD_ID: ${ADMIN_DISCORD_ID:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=4).status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: f1fantasy
+      POSTGRES_USER: f1fantasy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U f1fantasy -d f1fantasy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

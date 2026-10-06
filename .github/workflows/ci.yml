@@ -2,64 +2,91 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main]
   pull_request:
-    branches: [ main, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ "3.12" ]
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pylint flake8
-
-    - name: Lint with flake8
-      run: |
-        # Stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # Exit-zero treats all errors as warnings
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-    - name: Lint with pylint
-      run: |
-        pylint --disable=all --enable=E,F $(git ls-files '*.py') || true
-      continue-on-error: true
-
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ "3.12" ]
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
 
-    - name: Run tests
-      run: |
-        pytest tests/ -v || true
-      continue-on-error: true
+      - name: Test
+        # No || true and no continue-on-error. A gate that cannot fail is not a gate.
+        run: pytest -q --tb=short
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Ruff
+        run: |
+          ruff check app tests
+          ruff format --check app tests
+
+  schema:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: f1
+          POSTGRES_PASSWORD: f1
+          POSTGRES_DB: f1
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U f1" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install asyncpg sqlalchemy
+
+      - name: Schema applies cleanly and is idempotent
+        run: |
+          python - <<'PY'
+          import asyncio, pathlib, asyncpg
+
+          SQL = pathlib.Path("db/schema.sql").read_text()
+
+          async def main():
+              conn = await asyncpg.connect(
+                  user="f1", password="f1", database="f1", host="localhost", port=5432
+              )
+              await conn.execute(SQL)
+              await conn.execute(SQL)   # must be safe to re-run
+              await conn.close()
+              print("schema applies twice without error")
+
+          asyncio.run(main())
+          PY
