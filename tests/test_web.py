@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 
-from tests.conftest import make_league, sign_in
+from tests.helpers import make_league, sign_in
 
 # ── Public reads need no login ───────────────────────────────────────────────
 

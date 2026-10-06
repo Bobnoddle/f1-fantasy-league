@@ -18,12 +18,12 @@ async def test_a_driver_can_only_be_owned_once(client):
     """
     import asyncpg
 
-    from tests.conftest import _raw_dsn, make_league, sign_in
+    from tests.helpers import make_league, raw_dsn, sign_in
 
     await sign_in(client, "Admin")
     code = await make_league(client)
 
-    conn = await asyncpg.connect(_raw_dsn())
+    conn = await asyncpg.connect(raw_dsn())
     try:
         inserted = await conn.fetch(
             """
@@ -58,13 +58,13 @@ async def test_a_driver_may_be_owned_in_different_leagues(client):
     """The guard is per league, not global."""
     import asyncpg
 
-    from tests.conftest import _raw_dsn, make_league, sign_in
+    from tests.helpers import make_league, raw_dsn, sign_in
 
     await sign_in(client, "Admin")
     first = await make_league(client, name="League One")
     second = await make_league(client, name="League Two")
 
-    conn = await asyncpg.connect(_raw_dsn())
+    conn = await asyncpg.connect(raw_dsn())
     try:
         row = await conn.fetchrow(
             """

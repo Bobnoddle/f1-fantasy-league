@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 
-from tests.conftest import add_players, close_all, make_league, sign_in
+from tests.helpers import add_players, close_all, make_league, sign_in
 
 
 async def start_draft(admin, code: str, names: list[str]):
@@ -139,7 +139,7 @@ async def test_a_player_outside_the_league_cannot_pick(client):
     players = await start_draft(client, code, ["Sam"])
 
     outsider = client._transport.app  # noqa: F841 - readability only
-    from tests.conftest import sibling
+    from tests.helpers import sibling
 
     other = sibling(client)
     await other.post("/login", data={"display_name": "Outsider", "next": "/me"})
