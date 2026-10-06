@@ -257,13 +257,17 @@ class JolpicaProvider:
 
 
 def _table(payload: dict[str, Any], *keys: str) -> list[dict]:
-    """Walk the MRData envelope to a list, tolerating missing intermediate keys.
+    """Walk the MRData envelope to a list.
 
-    Handles the nesting shape where a key resolves to a list of objects and the
-    next key lives inside the first of them, e.g.
-    ``MRData → RaceTable → Races → [0] → Results``.
+    ``MRData`` is unwrapped automatically so callers cannot forget it. Omitting
+    it silently yields an empty list rather than an error, which is how a broken
+    extraction path once looked like "no data published".
+
+    Also handles nesting where a key resolves to a list of objects and the next
+    key lives inside the first of them, e.g.
+    ``RaceTable → Races → [0] → Results``.
     """
-    node: Any = payload
+    node: Any = payload.get("MRData", payload) if isinstance(payload, dict) else payload
     for key in keys:
         if isinstance(node, list):
             if not node:

@@ -15,6 +15,9 @@ from enum import StrEnum
 
 from app.domain.constants import MAX_TEAM_SIZE
 
+#: Team identity is opaque. The domain never interprets an id, so the same code
+#: drives in-memory tests (ints) and Postgres (UUIDs) alike.
+
 
 class DraftStatus(StrEnum):
     PENDING = "pending"
@@ -25,13 +28,13 @@ class DraftStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class DraftState:
+class DraftState[TId]:
     """Everything needed to decide what happens next."""
 
     status: DraftStatus
     current_pick: int
-    pick_order: tuple[int, ...]
-    team_ids: tuple[int, ...]
+    pick_order: tuple[TId, ...]
+    team_ids: tuple[TId, ...]
     season_drivers: int
     team_size: int
 
@@ -75,22 +78,24 @@ def team_size(players: int, season_drivers: int, override: int | None = None) ->
     return min(MAX_TEAM_SIZE, season_drivers // players)
 
 
-def snake_order(team_ids: Sequence[int], rounds: int) -> tuple[int, ...]:
+def snake_order[TId](team_ids: Sequence[TId], rounds: int) -> tuple[TId, ...]:
     """Pick sequence: forwards, then reversed, alternating per round."""
-    order: list[int] = []
+    order: list[TId] = []
     for round_index in range(rounds):
         order.extend(team_ids if round_index % 2 == 0 else reversed(team_ids))
     return tuple(order)
 
 
-def shuffled_order(team_ids: Sequence[int], rng: random.Random | None = None) -> tuple[int, ...]:
+def shuffled_order[TId](
+    team_ids: Sequence[TId], rng: random.Random | None = None
+) -> tuple[TId, ...]:
     """Randomised seed order. Same seed, same order, for tests."""
     ids = list(team_ids)
     (rng or random).shuffle(ids)
     return tuple(ids)
 
 
-def rounds_description(team_ids: Sequence[int], rounds: int) -> list[str]:
+def rounds_description[TId](team_ids: Sequence[TId], rounds: int) -> list[str]:
     """Human-readable order reveal for the admin panel."""
     names = {tid: str(tid) for tid in team_ids}
     lines: list[str] = []
@@ -127,10 +132,7 @@ def begin(
     )
 
 
-def advance(
-    state: DraftState,
-    team_id: int,
-) -> DraftState:
+def advance[TId](state: DraftState[TId], team_id: TId) -> DraftState[TId]:
     """Advance the cursor after a validated pick.
 
     Deliberately takes no driver id. Roster membership is a service concern:

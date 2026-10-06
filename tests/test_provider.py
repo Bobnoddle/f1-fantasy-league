@@ -32,7 +32,7 @@ def load(name: str) -> dict:
 
 def results_from(payload: dict) -> list[DriverResult]:
     """Run fixture rows through the real parser."""
-    raw = _table(payload, "MRData", "RaceTable", "Races")[0]["Results"]
+    raw = _table(payload, "RaceTable", "Races")[0]["Results"]
     return [JolpicaProvider._parse(entry, None) for entry in raw]
 
 
@@ -41,7 +41,7 @@ def results_from(payload: dict) -> list[DriverResult]:
 
 def test_table_walks_envelope() -> None:
     payload = load("race_results.json")
-    rows = _table(payload, "MRData", "RaceTable", "Races", "Results")
+    rows = _table(payload, "RaceTable", "Races", "Results")
     assert len(rows) == 22  # a 2026 grid is 22 cars
 
 
@@ -160,7 +160,7 @@ def test_parse_rejects_unknown_status() -> None:
 
 
 def test_sprint_fixture_parses() -> None:
-    raw = _table(load("sprint_results.json"), "MRData", "RaceTable", "Races")[0]
+    raw = _table(load("sprint_results.json"), "RaceTable", "Races")[0]
     sprint = raw["SprintResults"]
     parsed = [JolpicaProvider._parse(e, None) for e in sprint]
 
@@ -173,7 +173,7 @@ def test_sprint_fixture_parses() -> None:
 
 
 def test_calendar_fixture_parses_sprint_date() -> None:
-    races = _table(load("calendar.json"), "MRData", "RaceTable", "Races")
+    races = _table(load("calendar.json"), "RaceTable", "Races")
     with_sprint = [r for r in races if "Sprint" in r]
 
     assert with_sprint
@@ -181,6 +181,6 @@ def test_calendar_fixture_parses_sprint_date() -> None:
 
 
 def test_drivers_fixture_shape() -> None:
-    drivers = _table(load("drivers.json"), "MRData", "DriverTable", "Drivers")
+    drivers = _table(load("drivers.json"), "DriverTable", "Drivers")
     assert len(drivers) >= 20
     assert all("driverId" in d for d in drivers)

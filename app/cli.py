@@ -15,15 +15,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import pathlib
 import sys
 from datetime import UTC, datetime
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import delete, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.config import get_settings
+from app.config import ConfigError, get_settings
+from app.models import League
+from app.provider.jolpica import JolpicaProvider
 
 log = logging.getLogger("cli")
+
+_SCHEMA_PATH = pathlib.Path(__file__).resolve().parent.parent / "db" / "schema.sql"
 
 #: A cron run still going after this long is treated as hung. Railway gives no
 #: warning when it skips a run, so we surface it ourselves.
@@ -127,11 +132,84 @@ async def run_score() -> int:
 
 
 async def run_migrate() -> int:
-    """Apply migrations. Idempotent — safe to run on every container start."""
-    from app.db import migrate
+    """Apply db/schema.sql. Idempotent — safe on every container start.
 
-    await migrate.upgrade()
-    return 0
+    Bootstrap only. The schema uses CREATE TABLE IF NOT EXISTS, which handles
+    adding new tables but will not alter an existing one. Once a column needs to
+    change in place, this needs Alembic migrations rather than an edited
+    bootstrap file.
+    """
+    engine = create_async_engine(get_settings().database_url, pool_pre_ping=True)
+    try:
+        sql = _SCHEMA_PATH.read_text(encoding="utf-8")
+        async with engine.begin() as conn:
+            # asyncpg refuses multi-statement prepared statements, and splitting
+            # the file on ";" would be fragile. The raw driver connection
+            # accepts a multi-statement script.
+            raw = (await conn.get_raw_connection()).driver_connection
+            await raw.execute(sql)
+        log.info("migrate: schema applied")
+        return 0
+    except Exception:
+        log.exception("migrate: failed")
+        return 1
+    finally:
+        await engine.dispose()
+
+
+async def run_simulate(args: argparse.Namespace) -> int:
+    """Play a simulated league end to end against real data.
+
+    Exits non-zero if the draft produced nothing or no race scored, so it is
+    usable as a CI gate.
+    """
+    from app.sim.runner import SimConfig, Simulator
+
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+
+    config = SimConfig(
+        league_code=args.code,
+        league_name=args.name,
+        players=args.players,
+        pick_deadline=args.pick_deadline,
+        team_size=args.team_size,
+        seed=args.seed,
+        time_compression=args.speed,
+        discord=args.discord,
+        verbose=not args.quiet,
+    )
+
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            existing = await session.scalars(
+                select(League.id).where(League.code == config.league_code)
+            )
+            for league_id in existing.all():
+                await session.execute(delete(League).where(League.id == league_id))
+            await session.commit()
+
+            async with JolpicaProvider(retries=settings.fetch_retries) as provider:
+                sim = Simulator(session, provider, config)
+                league = await sim.setup(args.season)
+                await sim.run_draft(league)
+                await sim.run_season(league, through_round=args.through)
+                print(await sim.summarise(league))
+
+            result = sim.report
+            ok = result.picks > 0 and (result.races_scored > 0 or args.through is None)
+            if not ok:
+                log.error(
+                    "simulate: picks=%d races=%d — expected a completed draft",
+                    result.picks,
+                    result.races_scored,
+                )
+            return 0 if ok else 1
+    except Exception:
+        log.exception("simulate: failed")
+        return 1
+    finally:
+        await engine.dispose()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,11 +217,34 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("score", help="score finished events and post to Discord")
-    sub.add_parser("migrate", help="apply database migrations")
+    sub.add_parser("migrate", help="apply the database schema")
+
+    sim = sub.add_parser("simulate", help="play a simulated league against real data")
+    sim.add_argument("--season", type=int, default=2025, help="season to simulate")
+    sim.add_argument("--players", type=int, default=6)
+    sim.add_argument("--through", type=int, default=None, help="stop after this round")
+    sim.add_argument("--pick-deadline", type=int, default=600)
+    sim.add_argument("--team-size", type=int, default=None)
+    sim.add_argument("--code", default="sim")
+    sim.add_argument("--name", default="Simulated League")
+    sim.add_argument("--seed", type=int, default=7)
+    sim.add_argument("--speed", type=float, default=1.0, help="time compression")
+    sim.add_argument("--discord", action="store_true", help="post to the league webhook")
+    sim.add_argument("--quiet", action="store_true")
 
     args = parser.parse_args(argv)
-    settings = get_settings()
+
+    try:
+        settings = get_settings()
+    except ConfigError as exc:
+        print(f"configuration error: {exc}", file=sys.stderr)
+        print("copy .env.example to .env and fill it in", file=sys.stderr)
+        return 2
+
     configure_logging(settings.log_level)
+
+    if args.command == "simulate":
+        return asyncio.run(run_simulate(args))
 
     runners = {"score": run_score, "migrate": run_migrate}
     try:

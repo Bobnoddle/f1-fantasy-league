@@ -22,17 +22,14 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Protocol
 from uuid import UUID
 
+from app.clock import Clock, SystemClock
 from app.domain import draft as domain_draft
 
 log = logging.getLogger(__name__)
-
-
-def utcnow() -> datetime:
-    return datetime.now(UTC)
 
 
 class DraftRepository(Protocol):
@@ -127,10 +124,14 @@ class DraftService:
         publisher: DiscordPublisher | None = None,
         *,
         rng: random.Random | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self.repo = repo
         self.publisher = publisher or NoopPublisher()
         self.rng = rng or random.Random()
+        # Injected rather than read from the module, so a simulation can move
+        # virtual time and actually exercise the timeout path.
+        self.clock = clock or SystemClock()
 
     # ── Signup ───────────────────────────────────────────────────────────────
 
@@ -185,7 +186,7 @@ class DraftService:
             return None
 
         expires_at = await self._read_expiry(league_id)
-        if expires_at is None or expires_at > utcnow():
+        if expires_at is None or expires_at > self.clock.now():
             return None
 
         on_clock = state.on_the_clock
@@ -193,11 +194,7 @@ class DraftService:
             return None
 
         taken = await self.repo.get_taken_driver_ids(league_id)
-        pool = [
-            d
-            for d in await self.repo.get_available_drivers(league_id, season_drivers)
-            if d[0] not in taken
-        ]
+        pool = [d for d in await self.repo.get_available_drivers(league_id) if d[0] not in taken]
         if not pool:
             log.error("draft %s: no drivers left but picks remain", league_id)
             return None
@@ -241,11 +238,7 @@ class DraftService:
             raise ValueError("That driver has already been picked")
 
         driver_name = next(
-            (
-                n
-                for d, n, _ in await self.repo.get_available_drivers(league_id, 0)
-                if d == driver_id
-            ),
+            (n for d, n, _ in await self.repo.get_available_drivers(league_id) if d == driver_id),
             "Unknown",
         )
 
@@ -293,7 +286,7 @@ class DraftService:
         return TurnOutcome(True, next_state, auto, driver_id)
 
     async def _arm(self, league_id: UUID, state: domain_draft.DraftState, deadline: int) -> None:
-        await self.repo.set_expiry(league_id, utcnow() + timedelta(seconds=deadline))
+        await self.repo.set_expiry(league_id, self.clock.now() + timedelta(seconds=deadline))
 
     async def _announce_turn(
         self, league_id: UUID, state: domain_draft.DraftState, deadline: int

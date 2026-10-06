@@ -44,7 +44,7 @@ class FakeRepo:
     async def get_taken_driver_ids(self, league_id):
         return {d for _, d, _, _ in self.picks}
 
-    async def get_available_drivers(self, league_id, season_year):
+    async def get_available_drivers(self, league_id):
         return list(self.drivers)
 
     async def commit_pick(self, league_id, team_id, driver_id, pick_number, auto):

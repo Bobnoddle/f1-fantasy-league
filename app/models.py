@@ -22,6 +22,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -35,6 +36,37 @@ def _uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
+class Player(Base):
+    """Identity, independent of Discord.
+
+    ``provider='discord'`` rows carry a snowflake. ``provider='guest'`` rows
+    have no external id at all, which is what makes a league with no Discord
+    integration possible without special-casing anywhere downstream.
+    """
+
+    __tablename__ = "player"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False, default="guest")
+    external_id: Mapped[str | None] = mapped_column(String(32))
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("provider IN ('discord','guest')", name="player_provider_check"),
+        CheckConstraint(
+            "provider <> 'discord' OR external_id IS NOT NULL", name="player_external_check"
+        ),
+        Index(
+            "player_discord_key",
+            "provider",
+            "external_id",
+            unique=True,
+            postgresql_where=text("provider = 'discord'"),
+        ),
+    )
+
+
 class League(Base):
     __tablename__ = "league"
 
@@ -45,7 +77,9 @@ class League(Base):
     state: Mapped[str] = mapped_column(String(24), nullable=False, default="created")
     team_size: Mapped[int | None] = mapped_column(Integer)
     pick_deadline: Mapped[int] = mapped_column(Integer, nullable=False, default=600)
-    admin_user_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    admin_player_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("player.id")
+    )
     webhook_id: Mapped[str | None] = mapped_column(String(32))
     webhook_token: Mapped[str | None] = mapped_column(Text)  # encrypted at rest
     signup_message_id: Mapped[str | None] = mapped_column(String(32))
@@ -88,17 +122,21 @@ class Team(Base):
     league_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("league.id", ondelete="CASCADE"), nullable=False
     )
-    discord_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("player.id"), nullable=False
+    )
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
     draft_order: Mapped[int | None] = mapped_column(Integer)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint("league_id", "discord_id", name="team_league_discord_key"),
+        UniqueConstraint("league_id", "player_id", name="team_league_player_key"),
         Index("team_league_idx", "league_id"),
+        Index("team_player_idx", "player_id"),
     )
 
     league: Mapped[League] = relationship(back_populates="teams")
+    player: Mapped[Player] = relationship()
     roster: Mapped[list[Roster]] = relationship(back_populates="team", cascade="all, delete-orphan")
 
 

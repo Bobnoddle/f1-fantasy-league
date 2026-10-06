@@ -6,6 +6,28 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- ── Players ─────────────────────────────────────────────────────────────────
+-- Identity is not a Discord concept. A player is a Discord account, a guest
+-- (no integration at all), or something else later. `external_id` is the id
+-- within that provider and is NULL for guests, so a league works with no
+-- Discord integration anywhere in the stack.
+
+CREATE TABLE IF NOT EXISTS player (
+    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider     text NOT NULL DEFAULT 'guest'
+                             CHECK (provider IN ('discord','guest')),
+    external_id  text,           -- Discord snowflake; NULL for guests
+    display_name text NOT NULL,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    -- Guests are unique on name within a league, so uniqueness is enforced per
+    -- league on `team` rather than here where a NULL external_id would collide
+    -- across every guest.
+    CHECK (provider <> 'discord' OR external_id IS NOT NULL)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS player_discord_key
+    ON player (provider, external_id) WHERE provider = 'discord';
+
 -- ── League ──────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS league (
@@ -18,7 +40,7 @@ CREATE TABLE IF NOT EXISTS league (
                                                  'drafting','active','archived')),
     team_size       int  CHECK (team_size IS NULL OR team_size > 0),
     pick_deadline   int  NOT NULL DEFAULT 600 CHECK (pick_deadline > 0),
-    admin_user_id   text NOT NULL,   -- Discord id; gates the admin panel
+    admin_player_id uuid REFERENCES player(id),  -- gates the admin panel
     webhook_id      text,
     webhook_token   text,          -- encrypted at rest in hosted mode
     signup_message_id text,        -- for edit-in-place signup updates
@@ -49,14 +71,17 @@ CREATE INDEX IF NOT EXISTS driver_season_idx ON driver (season_year);
 CREATE TABLE IF NOT EXISTS team (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     league_id     uuid NOT NULL REFERENCES league(id) ON DELETE CASCADE,
-    discord_id    text NOT NULL,
+    player_id     uuid NOT NULL REFERENCES player(id),
     display_name  text NOT NULL,
     draft_order   int,
     joined_at     timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (league_id, discord_id)
+    -- One team per player per league. Works for guests, whose player rows are
+    -- distinct even without an external id.
+    UNIQUE (league_id, player_id)
 );
 
 CREATE INDEX IF NOT EXISTS team_league_idx ON team (league_id);
+CREATE INDEX IF NOT EXISTS team_player_idx ON team (player_id);
 
 -- ── Roster ──────────────────────────────────────────────────────────────────
 
@@ -101,7 +126,7 @@ CREATE TABLE IF NOT EXISTS event (
     kind         text NOT NULL CHECK (kind IN ('race','sprint')),
     name         text NOT NULL,
     scored_at    timestamptz,
-    UNIQUE (league_id, season_year, round, kind)
+    CONSTRAINT event_identity_key UNIQUE (league_id, season_year, round, kind)
 );
 
 CREATE INDEX IF NOT EXISTS event_league_idx ON event (league_id, round);

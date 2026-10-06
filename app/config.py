@@ -6,6 +6,13 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:  # pragma: no cover - optional in production images
+    pass
+
 
 class ConfigError(RuntimeError):
     """Raised when required configuration is missing or malformed."""

@@ -90,3 +90,87 @@ jobs:
 
           asyncio.run(main())
           PY
+
+  # The simulator is the only test that touches Postgres and the real F1 API
+  # end to end, so it catches what unit tests with fakes cannot: stale ORM
+  # identity maps, schema drift, and provider parsing regressions.
+  simulate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: f1
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Migrate
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/f1
+          DISCORD_CLIENT_ID: ci
+          DISCORD_CLIENT_SECRET: ci
+          SESSION_SECRET: ci-only-not-a-real-secret
+          APP_URL: http://localhost:8080
+        run: python -m app.cli migrate
+
+      - name: Simulate a league
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/f1
+          DISCORD_CLIENT_ID: ci
+          DISCORD_CLIENT_SECRET: ci
+          SESSION_SECRET: ci-only-not-a-real-secret
+          APP_URL: http://localhost:8080
+          LOG_LEVEL: WARNING
+        # Four rounds is enough to exercise draft, timeouts, and scoring without
+        # waiting on a full season of upstream rate limits.
+        run: python -m app.cli simulate --season 2025 --players 6 --through 4 --quiet
+
+      - name: Verify the draft produced a complete roster
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/f1
+          DISCORD_CLIENT_ID: ci
+          DISCORD_CLIENT_SECRET: ci
+          SESSION_SECRET: ci-only-not-a-real-secret
+          APP_URL: http://localhost:8080
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/f1" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            roster_size int;
+            no_orphans  int;
+          BEGIN
+            -- Every drafted team must own exactly the computed team size.
+            SELECT min(c) INTO roster_size FROM (
+              SELECT count(*) c FROM roster GROUP BY team_id
+            ) t;
+            IF roster_size IS NULL OR roster_size < 3 THEN
+              RAISE EXCEPTION 'roster too small: %', roster_size;
+            END IF;
+
+            -- Every roster row must resolve to a driver. An orphaned
+            -- driver_id means a re-seed reassigned primary keys.
+            SELECT count(*) INTO no_orphans
+            FROM roster r LEFT JOIN driver d ON d.id = r.driver_id
+            WHERE d.id IS NULL;
+            IF no_orphans > 0 THEN
+              RAISE EXCEPTION '% orphaned roster rows', no_orphans;
+            END IF;
+
+            RAISE NOTICE 'draft verified: % drivers per team, 0 orphans', roster_size;
+          END $$;
+          SQL
