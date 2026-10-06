@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% from "macros.html" import driver_colour %}
+
+{% block title %}Draft — {{ league.name }}{% endblock %}
+
+{% block content %}
+{% set active_tab = 'draft' %}
+{% include "_league_tabs.html" %}
+
+{% set error = request.query_params.get('error') %}
+{% if request.query_params.get('picked') %}
+  <div class="banner banner--ok">Pick recorded. This tab can be closed.</div>
+{% endif %}
+{% if error == 'not-your-turn' %}
+  <div class="banner banner--warn">It is not your turn yet.</div>
+{% elif error == 'not-in-league' %}
+  <div class="banner banner--err">You have not joined this league.</div>
+{% elif error == 'just-taken' %}
+  <div class="banner banner--warn">Another player took that driver first. Pick again.</div>
+{% endif %}
+
+{% if state and state.status == 'drafting' %}
+  {% set on_clock = state.on_the_clock %}
+  {% set your_turn = my_team and on_clock == my_team.id %}
+
+  <section class="panel">
+    <div class="panel__head">
+      <span class="panel__title">Draft in progress</span>
+      {% if countdown_seconds is not none %}
+      <span id="countdown" class="countdown">{{ (countdown_seconds // 60) }}:{{ '%02d' % (countdown_seconds % 60) }}</span>
+      {% endif %}
+    </div>
+    <div class="panel__body">
+      <div class="row row--between" style="align-items:flex-start">
+        <div>
+          <div style="font-size:17px;font-weight:600">
+            {% if your_turn %}
+              You are on the clock
+            {% else %}
+              {% if on_clock %}{{ rosters and (names_lookup.get(on_clock) if names_lookup else '') or '' }}{% endif %}
+              Waiting on {{ on_clock | default('—') }}
+            {% endif %}
+          </div>
+          <div class="small muted mt">
+            Round {{ state.round_number }} · pick {{ state.pick_in_round }} of {{ state.team_count or state.team_ids|length }}
+            · {{ state.total_picks }} total picks
+          </div>
+        </div>
+        {% if your_turn %}
+        <a class="btn btn--primary btn--lg" href="/l/{{ league.code }}/draft/pick">Pick a driver</a>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <div class="grid-2 mt" style="align-items:start">
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Draft order</span></div>
+      <div class="panel__body panel__body--flush">
+        <table class="table">
+          <tbody>
+            {% for team in teams %}
+            <tr {% if my_team and team.id == my_team.id %}class="is-you"{% endif %}>
+              <td style="width:40px" class="muted">{{ team.draft_order or '—' }}</td>
+              <td>{{ team.display_name }}
+                {% if on_clock == team.id %}<span class="state-tag state-tag--draft">picking</span>{% endif %}
+              </td>
+              <td class="num muted">{{ roster_counts and roster_counts.get(team.id, 0) or rosters.get(team.display_name, [])|length }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Teams so far</span></div>
+      <div class="panel__body panel__body--flush">
+        {% if rosters %}
+        <table class="table">
+          <tbody>
+            {% for name, drivers in rosters.items() %}
+            <tr>
+              <td style="width:130px">{{ name }}</td>
+              <td class="small muted">{{ drivers|join(' · ') }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="panel__body"><p class="muted small" style="margin:0">No picks yet.</p></div>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+
+{% elif state and state.status == 'complete' %}
+  <section class="panel">
+    <div class="panel__head"><span class="panel__title">Draft complete</span></div>
+    <div class="panel__body panel__body--flush">
+      <table class="table">
+        <thead><tr><th>Team</th><th>Drivers</th></tr></thead>
+        <tbody>
+          {% for name, drivers in rosters.items() %}
+          <tr><td>{{ name }}</td><td class="small muted">{{ drivers|join(' · ') }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+{% else %}
+  <section class="panel">
+    <div class="panel__head"><span class="panel__title">Draft not started</span></div>
+    <div class="panel__body stack">
+      <p class="small muted" style="margin:0">
+        The admin opens the draft when everyone has joined. You will get a message
+        in the Discord channel when it is your turn — or just watch this page.
+      </p>
+      {% if my_team %}
+      <a class="btn" href="/l/{{ league.code }}">Back to standings</a>
+      {% else %}
+      <a class="btn btn--primary" href="/join/{{ league.code }}">Join to take part</a>
+      {% endif %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

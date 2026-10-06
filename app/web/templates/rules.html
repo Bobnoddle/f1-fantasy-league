@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Scoring rules{% endblock %}
+
+{% block content %}
+<div style="max-width:720px">
+  <div class="eyebrow">Scoring</div>
+  <h1 style="margin:0 0 6px;font-size:30px;letter-spacing:-.02em">How points are awarded</h1>
+  <p class="muted">
+    Every classified position scores. The design goal is that a midfield driver who
+    over-performs can outscore a front-runner who under-performs.
+  </p>
+
+  <div class="panel mt">
+    <div class="panel__body">
+      <pre class="mono" style="white-space:pre-wrap;margin:0;font-size:13px;line-height:1.7">{{ rules }}</pre>
+    </div>
+  </div>
+
+  <p class="small muted mt">
+    Generated from the same constants the scoring engine uses, so this page cannot
+    drift from how your league actually scores.
+  </p>
+</div>
+{% endblock %}

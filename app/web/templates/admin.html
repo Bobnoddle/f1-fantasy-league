@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% from "macros.html" import pos, trend %}
+
+{#
+  The admin panel. Configuration on the left, lifecycle buttons on the right.
+  Buttons are the whole point: every state transition is one click and nothing
+  needs to be typed.
+#}
+{% block title %}Admin — {{ league.name }}{% endblock %}
+
+{% block content %}
+{% set active_tab = 'admin' %}
+{% include "_league_tabs.html" %}
+
+{% set saved = request.query_params.get('saved') %}
+{% set error = request.query_params.get('error') %}
+{% if saved %}
+  <div class="banner banner--ok">
+    {%- if saved == 'webhook' -%}Webhook connected.
+    {%- elif saved == 'webhook-cleared' -%}Webhook removed. Results will not post anywhere.
+    {%- elif saved == 'reset' -%}League reset. Everyone has to rejoin.
+    {%- elif saved == 'rescore' -%}Scores cleared. The next cron pass rebuilds them.
+    {%- elif saved.startswith('test-') -%}Test message: {{ saved[5:].replace('-', ' ') }}
+    {%- else -%}{{ saved.replace('-', ' ') }} — done.{%- endif -%}
+  </div>
+{% endif %}
+{% if error %}
+  <div class="banner banner--err">
+    {%- if error == 'need-2-players' -%}At least 2 players must join before the draft can start.
+    {%- elif error == 'bad-webhook' -%}That does not look like a Discord webhook URL.
+    {%- else -%}{{ error.replace('-', ' ') }}{%- endif -%}
+  </div>
+{% endif %}
+
+<div class="grid-2" style="align-items:start">
+
+  <div class="stack">
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__title">League progress</span>
+        <span class="state-tag state-tag--{{ league.state }}">{{ league.state.replace('_', ' ') }}</span>
+      </div>
+      <div class="panel__body stack">
+        <form method="post" action="/l/{{ league.code }}/admin/action">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+          <div class="row" style="gap:8px; flex-wrap:wrap">
+            <button class="btn" name="action" value="open-signup"
+                    {% if league.state != 'created' %}disabled{% endif %}>Open signup</button>
+            <button class="btn" name="action" value="close-signup"
+                    {% if league.state not in ('created', 'signup_open') %}disabled{% endif %}>Close signup</button>
+            <button class="btn btn--primary" name="action" value="start-draft"
+                    {% if league.state not in ('draft_ready',) or teams|length < 2 %}disabled{% endif %}>Start draft</button>
+          </div>
+          <p class="small muted" style="margin:10px 0 0">
+            {{ teams|length }} player{{ 's' if teams|length != 1 }} joined
+            {% if countdown_seconds is not none %}
+              · pick window {{ countdown_seconds // 60 }}:{{ '%02d' % (countdown_seconds % 60) }} left
+            {% endif %}
+          </p>
+        </form>
+
+        <hr style="border:none;border-top:1px solid var(--line);margin:4px 0">
+
+        <div class="field" style="margin:0">
+          <label>Share with players</label>
+          <input type="text" class="mono" readonly value="/join/{{ league.code }}" onclick="this.select()">
+          <span class="hint">Anyone who signs in can claim a spot.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Players ({{ teams|length }})</span></div>
+      <div class="panel__body panel__body--flush">
+        {% if teams %}
+        <table class="table">
+          <thead><tr><th>Player</th><th class="num">Order</th><th class="num">Drivers</th></tr></thead>
+          <tbody>
+            {% for team in teams %}
+            <tr>
+              <td>{{ team.display_name }}</td>
+              <td class="num muted">{{ team.draft_order or '—' }}</td>
+              <td class="num">{{ roster_counts.get(team.id, 0) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="panel__body"><p class="muted small" style="margin:0">Nobody has joined yet.</p></div>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Settings</span></div>
+      <div class="panel__body">
+        <form method="post" action="/l/{{ league.code }}/admin/settings">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="field">
+            <label>League name</label>
+            <input type="text" name="name" value="{{ league.name }}" required maxlength="120">
+          </div>
+          <div class="field">
+            <label>Season</label>
+            <select name="season_year">
+              {% for y in seasons %}
+              <option value="{{ y }}" {% if y == league.season_year %}selected{% endif %}>{{ y }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label>Pick timer — {{ league.pick_deadline // 60 }} minutes</label>
+            <input type="range" name="pick_deadline" min="60" max="1800" step="60"
+                   value="{{ league.pick_deadline }}">
+            <span class="hint">A player who runs out of time is auto-picked randomly.</span>
+          </div>
+          <div class="field">
+            <label>Drivers per team</label>
+            <input type="text" name="team_size" value="{{ league.team_size or '' }}"
+                   placeholder="auto" inputmode="numeric">
+            <span class="hint">Leave blank to auto-scale to the player count.</span>
+          </div>
+          <button class="btn btn--primary btn--block" type="submit">Save settings</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Discord webhook</span>
+        {% if league.webhook_id %}<span class="state-tag state-tag--live">connected</span>{% endif %}
+      </div>
+      <div class="panel__body stack">
+        {% if league.webhook_id %}
+          <p class="small muted" style="margin:0">
+            Results post to this channel. Optional — the league works without it.
+          </p>
+        {% else %}
+          <p class="small muted" style="margin:0">
+            No channel connected. Announcements are skipped and the league plays
+            normally. Paste a webhook URL to post results into a channel.
+          </p>
+        {% endif %}
+
+        <form method="post" action="/l/{{ league.code }}/admin/webhook" class="row" style="gap:8px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input class="grow mono" type="text" name="webhook_url"
+                 placeholder="https://discord.com/api/webhooks/…"
+                 value="{{ league.webhook_id and 'configured' or '' }}">
+          <button class="btn" type="submit">Save</button>
+        </form>
+        {% if league.webhook_id %}
+        <form method="post" action="/l/{{ league.code }}/admin/test-webhook">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn--block" type="submit">Post a test message</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Season</span></div>
+      <div class="panel__body stack">
+        <p class="small muted" style="margin:0">
+          {{ scored }} event{{ 's' if scored != 1 }} scored so far this season.
+        </p>
+        <form method="post" action="/l/{{ league.code }}/admin/action">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="row" style="gap:8px">
+            <button class="btn" name="action" value="rescore">Rescore from scratch</button>
+            <button class="btn" name="action" value="archive">Archive season</button>
+          </div>
+        </form>
+        <form method="post" action="/l/{{ league.code }}/admin/action"
+              onsubmit="return confirm('Reset wipes every team, roster and score. This cannot be undone.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn--danger btn--block" name="action" value="reset">Reset league</button>
+        </form>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

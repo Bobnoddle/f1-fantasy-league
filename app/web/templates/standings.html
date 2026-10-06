@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% from "macros.html" import pos, trend %}
+
+{% block title %}{{ league.name }} — standings{% endblock %}
+
+{% block content %}
+{% include "_league_tabs.html" %}
+
+{% set saved = request.query_params.get('saved') %}
+{% if saved %}<div class="banner banner--ok">{{ saved.replace('-', ' ') }} — done.</div>{% endif %}
+{% if error %}<div class="banner banner--err">{{ error }}</div>{% endif %}
+
+<div class="grid-2" style="align-items:start">
+
+  <section class="panel">
+    <div class="panel__head">
+      <span class="panel__title">Season standings</span>
+      <span class="small muted">{{ standings|length }} team{{ 's' if standings|length != 1 }}</span>
+    </div>
+    <div class="panel__body panel__body--flush">
+      {% if standings %}
+      <table class="table table--rank">
+        <thead>
+          <tr><th></th><th>Team</th><th class="num">Points</th><th class="num">Gap</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for row in standings %}
+          <tr {% if my_team and row.team_id == my_team.id|string %}class="is-you"{% endif %}>
+            <td>{{ pos(row.position) }}</td>
+            <td>
+              <a href="/l/{{ league.code }}/team/{{ row.team_id }}">{{ row.display_name }}</a>
+            </td>
+            <td class="num">{{ row.points|pts }}</td>
+            <td class="num muted">
+              {%- if row.position == 1 %}<span class="muted">—</span>
+              {%- else %}{{ row.gap_to_leader|pts }}{% endif -%}
+            </td>
+            <td class="num">{{ trend(row.trend) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="panel__body"><p class="muted small">No teams yet.</p></div>
+      {% endif %}
+    </div>
+  </section>
+
+  <div class="stack">
+    {% if not my_team %}
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Join this league</span></div>
+      <div class="panel__body stack">
+        <p class="small muted" style="margin:0">
+          Sign up, then claim a spot. Takes two taps.
+        </p>
+        <a class="btn btn--primary btn--block" href="/join/{{ league.code }}">Join {{ league.name }}</a>
+        {% if not player %}
+        <a class="btn btn--block" href="/login?next=/join/{{ league.code }}">Sign in first</a>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Races</span></div>
+      <div class="panel__body panel__body--flush">
+        {% if events %}
+        <table class="table">
+          <tbody>
+            {% for ev in events %}
+            <tr>
+              <td><a href="/l/{{ league.code }}/event/{{ ev.id }}">R{{ ev.round }} · {{ ev.name }}</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="panel__body">
+          <p class="muted small" style="margin:0">
+            No races scored yet. Results post automatically after each Grand Prix.
+          </p>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head"><span class="panel__title">Share</span></div>
+      <div class="panel__body stack">
+        <p class="small muted" style="margin:0">
+          Standings are public. Anyone with this link can read them without signing in.
+        </p>
+        <input type="text" class="mono" readonly value="/l/{{ league.code }}" onclick="this.select()">
+        {% if my_team %}
+        <a class="btn btn--block" href="/join/{{ league.code }}">Invite link</a>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

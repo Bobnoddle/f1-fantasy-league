@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Start a league{% endblock %}
+
+{% block content %}
+<div style="max-width:520px;margin:32px auto">
+  <div class="eyebrow">Free</div>
+  <h1 style="margin:0 0 6px;font-size:28px;letter-spacing:-.02em">Start a league</h1>
+  <p class="muted">
+    You'll be the admin. Discord is optional — skip it and run the whole thing on the web.
+  </p>
+
+  {% if error %}<div class="banner banner--err mt">{{ error }}</div>{% endif %}
+
+  <section class="panel mt">
+    <div class="panel__body">
+      <form method="post" action="/signup">
+        <div class="field">
+          <label>League name</label>
+          <input type="text" name="name" required maxlength="120"
+                 placeholder="Barham GP Fantasy" autofocus>
+        </div>
+        <div class="field">
+          <label>Season</label>
+          <select name="season">
+            {% for y in seasons %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+          </select>
+        </div>
+
+        {% if not player %}
+        <div class="field">
+          <label>Your display name</label>
+          <input type="text" name="display_name" required maxlength="80" placeholder="e.g. Dave">
+        </div>
+        <div class="field">
+          <label>Discord user ID <span class="muted">(optional)</span></label>
+          <input type="text" name="discord_id" placeholder="leave blank for no Discord">
+          <span class="hint">Only needed if you want announcements to actually mention you.</span>
+        </div>
+        {% endif %}
+
+        <div class="row" style="gap:12px; align-items:flex-start">
+          <div class="field grow" style="margin:0">
+            <label>Pick timer (seconds)</label>
+            <input type="number" name="pick_deadline" value="600" min="30" step="30">
+          </div>
+          <div class="field grow" style="margin:0">
+            <label>Drivers per team</label>
+            <input type="text" name="team_size" placeholder="auto">
+          </div>
+        </div>
+
+        <div class="mt">
+          <button class="btn btn--primary btn--block" type="submit">Create league</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <p class="small muted center mt">
+    Prefer to run it yourself? <a href="/pricing">Self-host for free</a>.
+  </p>
+</div>
+{% endblock %}

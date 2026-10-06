@@ -42,9 +42,18 @@ ignore = ["N802", "N803", "N806"]
 # Tests and Protocol implementations legitimately ignore unused parameters —
 # fakes must match a Protocol's signature even when they ignore the arguments.
 "tests/*" = ["ARG", "S101"]
+# FastAPI's dependency-injection idiom is Depends() in argument defaults.
+"app/web/*" = ["B008"]
 "app/services/*" = ["ARG"]
 "app/repo/*" = ["ARG"]
 
 [build-system]
 requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# Explicit, because flat-layout auto-discovery errors out on this repo: the
+# legacy tree leaves api/, cogs/, db/ and utils/ sitting beside app/, and
+# `pip install -e .` refuses to guess which one is the package.
+include = ["app*"]
+namespaces = false

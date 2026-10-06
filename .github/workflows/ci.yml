@@ -10,8 +10,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Real Postgres, not a service container reused across jobs. The web tests
+  # drive the actual application through its actual routes, which is the only
+  # way a lost commit or a stale identity map ever fails anything.
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: f1
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/f1_test
+      APP_URL: http://localhost:8080
+      SESSION_SECRET: ci-only-not-a-real-secret
+      DISCORD_CLIENT_ID: ci
+      DISCORD_CLIENT_SECRET: ci
     steps:
       - uses: actions/checkout@v4
 

@@ -65,6 +65,30 @@ async def seed_season(
     return len(drivers)
 
 
+async def ensure_season_seeded(
+    session: AsyncSession, season: int, provider: F1Provider | None = None
+) -> int:
+    """Load the season's grid if it is not already there.
+
+    A league created over the web has no drivers until something asks for them.
+    Without this the draft starts against an empty pool and every pick fails, so
+    both league creation and draft start call it.
+    """
+    existing = await session.scalar(
+        select(func.count(Driver.id)).where(Driver.season_year == season)
+    )
+    if existing:
+        return int(existing)
+
+    owns = provider is None
+    provider = provider or JolpicaProvider()
+    try:
+        return await seed_season(session, provider, season)
+    finally:
+        if owns:
+            await provider.aclose()  # type: ignore[attr-defined]
+
+
 async def _starting_codes(provider: F1Provider, season: int) -> set[str]:
     """Codes that appear in a completed race. Falls back to the full grid."""
     from app.provider.base import ProviderError

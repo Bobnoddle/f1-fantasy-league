@@ -50,6 +50,9 @@ class Player(Base):
     provider: Mapped[str] = mapped_column(String(16), nullable=False, default="guest")
     external_id: Mapped[str | None] = mapped_column(String(32))
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    #: SHA-256 of the guest's magic link. NULL for Discord players, who can
+    #: always sign back in through OAuth.
+    rejoin_hash: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (

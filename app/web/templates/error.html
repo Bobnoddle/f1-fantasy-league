@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}{{ code }} — {{ message }}{% endblock %}
+
+{% block content %}
+<div class="center" style="padding:60px 0">
+  <div class="eyebrow">{{ code }}</div>
+  <h1 style="margin:0 0 8px;font-size:24px">{{ message }}</h1>
+  <p class="muted">
+    {% if back %}<a href="{{ back }}">Go back</a>{% else %}
+    <a href="/leagues">Browse leagues</a> · <a href="/">Home</a>{% endif %}
+  </p>
+</div>
+{% endblock %}

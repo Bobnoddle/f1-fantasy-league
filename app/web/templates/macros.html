@@ -1,0 +1,61 @@
+{% macro panel(title, modifier="") -%}
+<div class="panel">
+  <div class="panel__head"><span class="panel__title">{{ title }}</span></div>
+  <div class="panel__body {{ modifier }}">{{ caller() }}</div>
+</div>
+{%- endmacro %}
+
+{#
+  Panel whose body is flush (no padding) — used for tables.
+  `caller()` is invoked exactly once; calling it twice renders the block twice.
+#}
+{% macro panel_flush(title, right="") -%}
+<div class="panel">
+  <div class="panel__head">
+    <span class="panel__title">{{ title }}</span>
+    {%- if right %}<span class="small muted">{{ right }}</span>{% endif %}
+  </div>
+  {{ caller() }}
+</div>
+{%- endmacro %}
+
+{# Position badge. Medals for the top three, plain numbers below. #}
+{% macro pos(n) -%}
+  {%- if n == 1 %}🥇{% elif n == 2 %}🥈{% elif n == 3 %}🥉{% else %}{{ n }}{% endif -%}
+{%- endmacro %}
+
+{% macro trend(delta) -%}
+  {%- if delta > 0 %}<span class="trend trend--up">▲ {{ delta }}</span>
+  {%- elif delta < 0 %}<span class="trend trend--down">▼ {{ -delta }}</span>
+  {%- else %}<span class="trend muted">—</span>{% endif -%}
+{%- endmacro %}
+
+{#
+  Constructor swatch. Longest-substring match on a hex list, mirroring
+  app.discord.client.constructor_colour so the web and Discord renderings of
+  the same team agree.
+#}
+{% macro driver_colour(constructor) -%}
+  {%- set name = constructor|lower -%}
+  <span class="swatch" style="background: {{
+    '#dc0000' if 'ferrari' in name else
+    '#1e41ff' if 'red bull' in name else
+    '#00d2be' if 'mercedes' in name else
+    '#ff8000' if 'mclaren' in name else
+    '#229971' if 'aston martin' in name else
+    '#f50537' if 'audi' in name else
+    '#b0b7bc' if 'cadillac' in name else
+    '#b6babd' if 'haas' in name else
+    '#52e252' if 'sauber' in name else
+    '#6c7bff' if 'rb' in name else
+    '#ff87bc' if 'alpine' in name else
+    '#64c4ff' if 'williams' in name else
+    '#8b95ab' }}"></span>
+{%- endmacro %}
+
+{# Progress button. One form, many actions, all POST. #}
+{% macro action_button(action, label, style="", confirm=None, disabled=False) -%}
+<button class="btn {{ style }}" name="action" value="{{ action }}"
+        {% if disabled %}disabled{% endif %}
+        {%- if confirm %} onsubmit="return confirm('{{ confirm }}')"{% endif %}>{{ label }}</button>
+{%- endmacro %}

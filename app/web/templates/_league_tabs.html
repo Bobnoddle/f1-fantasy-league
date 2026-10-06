@@ -1,0 +1,11 @@
+{# Shared league sub-navigation. Standings stays reachable from everywhere. #}
+<nav class="tabs">
+  <a href="/l/{{ league.code }}" class="{% if active_tab == 'standings' %}is-active{% endif %}">Standings</a>
+  {% if my_team %}
+  <a href="/l/{{ league.code }}/team/{{ my_team.id }}" class="{% if active_tab == 'team' %}is-active{% endif %}">My team</a>
+  {% endif %}
+  <a href="/l/{{ league.code }}/draft" class="{% if active_tab == 'draft' %}is-active{% endif %}">Draft</a>
+  {% if is_admin %}
+  <a href="/l/{{ league.code }}/admin" class="{% if active_tab == 'admin' %}is-active{% endif %}">Admin</a>
+  {% endif %}
+</nav>

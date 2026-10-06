@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS player (
                              CHECK (provider IN ('discord','guest')),
     external_id  text,           -- Discord snowflake; NULL for guests
     display_name text NOT NULL,
+    -- Guests have no external identity, so they get a magic link back into
+    -- their own account. Stored hashed: it is a bearer credential.
+    rejoin_hash   text,
     created_at   timestamptz NOT NULL DEFAULT now(),
     -- Guests are unique on name within a league, so uniqueness is enforced per
     -- league on `team` rather than here where a NULL external_id would collide

@@ -237,10 +237,19 @@ class DraftService:
         if driver_id in taken:
             raise ValueError("That driver has already been picked")
 
+        # Confirm the driver is in this season's pool before inserting. A stale
+        # or tampered id would otherwise reach the roster foreign key and surface
+        # as a constraint violation instead of something the caller can report.
+        #
+        # This check sits *after* the turn check on purpose: "it is not your
+        # turn" is the more useful message when both are true.
+        available = await self.repo.get_available_drivers(league_id)
         driver_name = next(
-            (n for d, n, _ in await self.repo.get_available_drivers(league_id) if d == driver_id),
-            "Unknown",
+            (n for d, n, _ in available if d == driver_id),
+            None,
         )
+        if driver_name is None:
+            raise ValueError("Unknown driver")
 
         return await self._apply(
             league_id,

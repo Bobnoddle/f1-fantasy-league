@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}You're in — {{ league.name }}{% endblock %}
+
+{% block content %}
+<div style="max-width:520px;margin:40px auto">
+  <div class="center" style="margin-bottom:22px">
+    <div style="font-size:40px">🏁</div>
+    <h1 style="margin:6px 0 4px;font-size:26px;letter-spacing:-.02em">
+      You're in, {{ player.display_name }}
+    </h1>
+    <p class="muted">
+      The draft for <b>{{ league.name }}</b> ({{ league.season_year }}) is open.
+      We'll ping you when it's your turn.
+    </p>
+  </div>
+
+  {% if rejoin_url %}
+  <section class="panel" style="border-color:var(--warn)">
+    <div class="panel__head"><span class="panel__title">Save your private link</span></div>
+    <div class="panel__body stack">
+      <p class="small muted" style="margin:0">
+        You're playing as a guest, so there's no password to remember. This link is
+        the only way back into your team — bookmark it, or sign in with Discord
+        instead and you'll never need it again.
+      </p>
+      <input type="text" class="mono" readonly value="{{ rejoin_url }}" onclick="this.select()">
+      <a class="btn btn--primary btn--block" href="/l/{{ league.code }}">Back to standings</a>
+    </div>
+  </section>
+  {% else %}
+  <section class="panel">
+    <div class="panel__body stack">
+      <a class="btn btn--primary btn--block" href="/l/{{ league.code }}">Back to standings</a>
+    </div>
+  </section>
+  {% endif %}
+
+  <p class="small muted center mt">
+    <a href="/l/{{ league.code }}/draft">Watch the draft</a> ·
+    <a href="/rules">Scoring rules</a>
+  </p>
+</div>
+{% endblock %}
