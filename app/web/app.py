@@ -60,6 +60,9 @@ def create_app() -> FastAPI:
 
     templates = Jinja2Templates(directory=str(TEMPLATES))
     templates.env.globals["now"] = lambda: datetime.now(UTC)
+    # Global rather than passed per render: whether Discord exists is a property
+    # of the deployment, and forgetting it in one router means a dead button.
+    templates.env.globals["discord_enabled"] = bool(settings.discord_client_id)
     templates.env.filters["pts"] = lambda v: f"{float(v or 0):,.0f}"
     templates.env.filters["signed"] = lambda v: f"{float(v or 0):+,.0f}"
     app.state.templates = templates

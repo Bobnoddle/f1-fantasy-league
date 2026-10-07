@@ -40,10 +40,14 @@ class Settings:
     """Runtime settings for both the web service and the cron job."""
 
     database_url: str
-    discord_client_id: str
-    discord_client_secret: str
     session_secret: str
     app_url: str
+
+    # Discord is optional. Absent means no OAuth button and no Discord webhook,
+    # which is the self-hosted default and a fully playable league. Requiring
+    # these would contradict the one thing this project is for.
+    discord_client_id: str = ""
+    discord_client_secret: str = ""
 
     # Optional — absent in self-hosted mode.
     stripe_secret_key: str | None = None
@@ -62,10 +66,18 @@ class Settings:
     @classmethod
     def from_env(cls) -> Settings:
         app_url = _require("APP_URL").rstrip("/")
+        discord_id = os.getenv("DISCORD_CLIENT_ID", "").strip()
+        discord_secret = os.getenv("DISCORD_CLIENT_SECRET", "").strip()
+        # Half-configured is a mistake worth reporting; fully absent is not.
+        if bool(discord_id) != bool(discord_secret):
+            raise ConfigError(
+                "DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET must be set together, "
+                "or both left empty to run without Discord"
+            )
         return cls(
             database_url=_require("DATABASE_URL"),
-            discord_client_id=_require("DISCORD_CLIENT_ID"),
-            discord_client_secret=_require("DISCORD_CLIENT_SECRET"),
+            discord_client_id=discord_id,
+            discord_client_secret=discord_secret,
             session_secret=_require("SESSION_SECRET"),
             app_url=app_url,
             stripe_secret_key=os.getenv("STRIPE_SECRET_KEY") or None,

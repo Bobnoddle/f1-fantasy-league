@@ -194,6 +194,13 @@ async def run_simulate(args: argparse.Namespace) -> int:
                 league = await sim.setup(args.season)
                 await sim.run_draft(league)
                 await sim.run_season(league, through_round=args.through)
+
+                # Must be explicit. AsyncSession.__aexit__ closes the session and
+                # discards anything merely flushed, and run_season's final
+                # transition to "active" is exactly that. Without this the league
+                # stayed in "drafting" while carrying a full season of results.
+                await session.commit()
+
                 print(await sim.summarise(league))
 
             result = sim.report

@@ -22,8 +22,15 @@
     </div>
   </section>
 
+  {% if discord_enabled %}
   <p class="small muted center mt">
     Discord sign-in is optional — <a href="/auth/discord">use Discord instead</a>
   </p>
+  {% else %}
+  {# No Discord configured, so offering the button would only lead to an error. #}
+  <p class="small muted center mt">
+    You will get a link to sign back in. Keep it — it is your team.
+  </p>
+  {% endif %}
 </div>
 {% endblock %}
