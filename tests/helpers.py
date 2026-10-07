@@ -65,23 +65,55 @@ def database_name() -> str:
 # ── Driving the app ──────────────────────────────────────────────────────────
 
 
+def csrf_of(html: str) -> str:
+    """Pull the CSRF token out of a rendered form.
+
+    Every unsafe request is now checked centrally in the middleware, so a POST
+    without this is rejected with a 403 — which reads exactly like an application
+    bug. Sent as a header rather than a form field so helpers do not have to
+    model which form posted what.
+    """
+    match = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
+    assert match, "no csrf_token in the page; the CSRF field is missing"
+    return match.group(1)
+
+
+async def token_for(client, path: str) -> str:
+    """Fetch a page and return its CSRF token."""
+    resp = await client.get(path)
+    assert resp.status_code == 200, f"{path} returned {resp.status_code}"
+    return csrf_of(resp.text)
+
+
+async def post(client, path: str, data: dict | None = None, *, csrf_from: str | None = None):
+    """POST with a valid CSRF token attached.
+
+    ``csrf_from`` names the page to read the token from; it defaults to
+    ``/login``, which is reachable while signed out. Every helper goes through
+    here so the tests exercise the same guard the browser does.
+    """
+    token = await token_for(client, csrf_from or "/login")
+    payload = {"csrf_token": token, **(data or {})}
+    return await client.post(path, data=payload)
+
+
 async def sign_in(client, name: str) -> None:
     """Establish a guest session."""
-    resp = await client.post("/login", data={"display_name": name, "next": "/me"})
+    resp = await post(client, "/login", {"display_name": name, "next": "/me"})
     assert resp.status_code == 303, resp.text
 
 
 async def make_league(client, *, name: str = "Test League", season: int = 2025) -> str:
     """Create a league as the signed-in user. Returns its code."""
-    resp = await client.post(
+    resp = await post(
+        client,
         "/signup",
-        data={
+        {
             "name": name,
             "season": str(season),
             "pick_deadline": "600",
             "team_size": "",
             "display_name": "Admin",
-            "discord_id": "",
         },
     )
     assert resp.status_code == 303, resp.text
@@ -107,8 +139,8 @@ async def add_players(client, names: list[str], code: str) -> dict[str, httpx.As
     out: dict[str, httpx.AsyncClient] = {}
     for name in names:
         other = sibling(client)
-        await other.post("/login", data={"display_name": name, "next": "/me"})
-        await other.post(f"/join/{code}")
+        await post(other, "/login", {"display_name": name, "next": "/me"})
+        await post(other, f"/join/{code}", csrf_from=f"/join/{code}")
         out[name] = other
     return out
 

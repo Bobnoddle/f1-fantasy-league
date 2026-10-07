@@ -61,7 +61,6 @@ async def seed_season(
             )
         )
         await session.execute(stmt)
-    await session.commit()
     return len(drivers)
 
 
@@ -72,7 +71,12 @@ async def ensure_season_seeded(
 
     A league created over the web has no drivers until something asks for them.
     Without this the draft starts against an empty pool and every pick fails, so
-    both league creation and draft start call it.
+    league creation calls it.
+
+    Flushes and leaves committing to the caller. This used to commit whatever
+    session it was handed, and the web layer hands it the request's session —
+    so /signup committed halfway through, leaving an orphaned player row if
+    anything after it failed.
     """
     existing = await session.scalar(
         select(func.count(Driver.id)).where(Driver.season_year == season)

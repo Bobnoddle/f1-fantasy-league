@@ -36,6 +36,32 @@ def _uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
+class RejoinToken(Base):
+    """A guest's magic link into one league.
+
+    Per ``(league_id, player_id)``, not per player: a guest can be in several
+    leagues and needs a way back into each. With one hash on ``player``, joining
+    a second league destroyed the first league's only recovery link.
+
+    The hash is a bearer credential, so it is never stored in the clear and
+    never logged. ``expires_at`` bounds how long a leaked link stays useful —
+    browser history and proxy logs are not temporary.
+    """
+
+    __tablename__ = "rejoin_token"
+
+    league_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("league.id", ondelete="CASCADE"), primary_key=True
+    )
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("player.id", ondelete="CASCADE"), primary_key=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Player(Base):
     """Identity, independent of Discord.
 
@@ -50,9 +76,6 @@ class Player(Base):
     provider: Mapped[str] = mapped_column(String(16), nullable=False, default="guest")
     external_id: Mapped[str | None] = mapped_column(String(32))
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
-    #: SHA-256 of the guest's magic link. NULL for Discord players, who can
-    #: always sign back in through OAuth.
-    rejoin_hash: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (

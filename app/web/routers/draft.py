@@ -90,8 +90,10 @@ async def draft_hub(code: str, request: Request, db: AsyncSession = Depends(get_
             "rolled": rolled,
             "player": player,
             "countdown_seconds": remaining_seconds(draft),
-            "csrf_token": request.state.session.csrf_token,
-            **await league_context(db, league, player),
+            # Without this the hub read "Waiting on 3f2a1b9c-…" — it printed
+            # the team id, because the names map was never handed to the page.
+            "names_lookup": {t.id: t.display_name for t in teams},
+            **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
     )
 
@@ -159,7 +161,7 @@ async def pick_page(code: str, request: Request, db: AsyncSession = Depends(get_
             "player": player,
             "countdown_seconds": remaining_seconds(draft),
             "csrf_token": request.state.session.csrf_token,
-            **await league_context(db, league, player),
+            **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
     )
 
@@ -198,13 +200,13 @@ async def make_pick(
 
     try:
         await service.pick(league.id, my_team.id, did, league.pick_deadline, display_names=names)
-        await db.commit()
     except ValueError as exc:
         return RedirectResponse(f"/l/{league.code}/draft?error={_slug(exc)}", status_code=303)
     except IntegrityError:
-        # The roster primary key caught a double pick. Nothing to repair — the
-        # other transaction won and this player simply picks again.
-        await db.rollback()
+        # The roster primary key caught a double pick. commit_pick wraps the
+        # insert in a savepoint, so the failure already rolled back only that
+        # insert — the session is usable and the middleware still commits it.
+        # The other transaction won and this player simply picks again.
         return RedirectResponse(f"/l/{league.code}/draft?error=just-taken", status_code=303)
 
     return RedirectResponse(f"/l/{league.code}/draft?picked=1", status_code=303)

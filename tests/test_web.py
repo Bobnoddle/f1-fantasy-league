@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 
-from tests.helpers import make_league, sign_in
+from tests.helpers import make_league, post, sign_in
 
 # ── Public reads need no login ───────────────────────────────────────────────
 
@@ -73,15 +73,13 @@ async def test_login_sets_a_session(client):
 
 
 async def test_login_redirect_honours_next(client):
-    resp = await client.post("/login", data={"display_name": "Dave", "next": "/l/whatever"})
+    resp = await post(client, "/login", {"display_name": "Dave", "next": "/l/whatever"})
     assert resp.headers["location"] == "/l/whatever"
 
 
 async def test_login_refuses_an_offsite_redirect(client):
     """next is user-supplied, so it must never leave the site."""
-    resp = await client.post(
-        "/login", data={"display_name": "Dave", "next": "https://evil.example/x"}
-    )
+    resp = await post(client, "/login", {"display_name": "Dave", "next": "https://evil.example/x"})
     assert resp.headers["location"] == "/me"
 
 
@@ -93,7 +91,7 @@ async def test_anonymous_dashboard_redirects_to_login(client):
 
 async def test_logout_clears_the_session(client):
     await sign_in(client, "Dave")
-    await client.post("/logout")
+    await post(client, "/logout")
     assert (await client.get("/me")).status_code == 303
 
 
@@ -170,7 +168,7 @@ async def test_joining_adds_a_team(client):
 
     other = httpx_client(client)
     await sign_in(other, "Sam")
-    resp = await other.post(f"/join/{code}")
+    resp = await post(other, f"/join/{code}")
     assert resp.status_code == 303
 
 
@@ -180,8 +178,8 @@ async def test_joining_twice_is_not_an_error(client):
 
     other = httpx_client(client)
     await sign_in(other, "Sam")
-    await other.post(f"/join/{code}")
-    resp = await other.post(f"/join/{code}")
+    await post(other, f"/join/{code}")
+    resp = await post(other, f"/join/{code}")
     assert resp.status_code == 303
 
     resp = await client.get(f"/l/{code}/admin")
@@ -199,7 +197,7 @@ async def test_guest_receives_a_rejoin_link(client):
 
     other = httpx_client(client)
     await sign_in(other, "Sam")
-    resp = await other.post(f"/join/{code}")
+    resp = await post(other, f"/join/{code}")
 
     assert "/welcome/" in resp.headers["location"]
     token = resp.headers["location"].split("token=")[1]
@@ -212,7 +210,7 @@ async def test_rejoin_restores_the_session_and_the_team(client):
 
     other = httpx_client(client)
     await sign_in(other, "Sam")
-    token = (await other.post(f"/join/{code}")).headers["location"].split("token=")[1]
+    token = (await post(other, f"/join/{code}")).headers["location"].split("token=")[1]
 
     # A completely fresh session, as if the cookie were gone.
     fresh = httpx_client(client)
@@ -238,21 +236,57 @@ async def test_rejoin_token_is_stored_hashed(client):
     """It is a bearer credential. A database leak must not hand over accounts."""
     from sqlalchemy import select
 
-    from app.models import Player
+    from app.models import RejoinToken
 
     await sign_in(client, "Admin")
     code = await make_league(client)
     other = httpx_client(client)
     await sign_in(other, "Sam")
-    token = (await other.post(f"/join/{code}")).headers["location"].split("token=")[1]
+    token = (await post(other, f"/join/{code}")).headers["location"].split("token=")[1]
 
     app = client._transport.app
     async with app.state.db_factory() as db:
-        rows = (await db.scalars(select(Player))).all()
-        hashes = {p.rejoin_hash for p in rows if p.rejoin_hash}
-        assert hashes
+        rows = (await db.scalars(select(RejoinToken))).all()
+        hashes = {r.token_hash for r in rows}
+        assert hashes, "no rejoin token was stored"
         assert all(len(h) == 64 for h in hashes)  # sha256 hex
         assert all(token not in h for h in hashes)  # never the raw token
+
+
+async def test_a_second_league_does_not_break_the_first_link(client):
+    """Joining another league used to overwrite the only recovery link.
+
+    The token lived in a single ``player.rejoin_hash`` column, so a guest in two
+    leagues lost the first league's link permanently, with no route to a new one.
+    """
+    first = await make_league(client, name="League One")
+    second = await make_league(client, name="League Two")
+
+    other = httpx_client(client)
+    await sign_in(other, "Sam")
+
+    token_one = (
+        (await post(other, f"/join/{first}", csrf_from=f"/join/{first}"))
+        .headers["location"]
+        .split("token=")[1]
+    )
+    await post(other, f"/join/{second}", csrf_from=f"/join/{second}")
+
+    # A brand-new session, as if the cookie were gone.
+    fresh = httpx_client(client)
+    assert (
+        await post(fresh, "/login", {"display_name": "Someone", "next": "/me"})
+    ).status_code == 303
+    fresh.cookies.clear()
+
+    assert (await fresh.get(f"/rejoin/{token_one}")).status_code == 303
+
+    me = await fresh.get("/me")
+    assert "Sam" in me.text
+    assert "League One" in me.text, "the first league's team was lost"
+
+    await other.aclose()
+    await fresh.aclose()
 
 
 # ── Admin gating ────────────────────────────────────────────────────────────
@@ -275,14 +309,14 @@ async def test_admin_actions_reject_non_admins(client):
 
     other = httpx_client(client)
     await sign_in(other, "Sam")
-    resp = await other.post(f"/l/{code}/admin/action", data={"action": "start-draft"})
+    resp = await post(other, f"/l/{code}/admin/action", {"action": "start-draft"})
     assert resp.status_code == 403
 
 
 async def test_admin_action_rejects_unknown_actions(client):
     await sign_in(client, "Admin")
     code = await make_league(client)
-    resp = await client.post(f"/l/{code}/admin/action", data={"action": "launch-missiles"})
+    resp = await post(client, f"/l/{code}/admin/action", {"action": "launch-missiles"})
     assert resp.status_code == 303
     assert "unknown-action" in resp.headers["location"]
 
@@ -290,7 +324,7 @@ async def test_admin_action_rejects_unknown_actions(client):
 async def test_draft_cannot_start_with_one_player(client):
     await sign_in(client, "Admin")
     code = await make_league(client)
-    resp = await client.post(f"/l/{code}/admin/action", data={"action": "start-draft"})
+    resp = await post(client, f"/l/{code}/admin/action", {"action": "start-draft"})
     assert "need-2-players" in resp.headers["location"]
 
 
@@ -346,10 +380,10 @@ def test_a_cookie_signed_with_another_secret_is_rejected():
 
 
 def test_csrf_rejects_a_missing_or_wrong_token():
-    from app.web.session import Session, SessionCodec
+    from app.web.session import Session
 
     session = Session(csrf_token="correct-token")
-    assert SessionCodec.verify_csrf(session, "correct-token")
-    assert not SessionCodec.verify_csrf(session, "wrong-token")
-    assert not SessionCodec.verify_csrf(session, "")
-    assert not SessionCodec.verify_csrf(session, None)
+    assert session.verify_csrf("correct-token")
+    assert not session.verify_csrf("wrong-token")
+    assert not session.verify_csrf("")
+    assert not session.verify_csrf(None)

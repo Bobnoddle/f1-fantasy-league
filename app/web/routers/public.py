@@ -129,7 +129,7 @@ async def standings(
             "teams": teams.all(),
             "events": events,
             "player": player,
-            **await league_context(db, league, player),
+            **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
     )
 
@@ -190,7 +190,7 @@ async def team_page(
             ],
             "total": total,
             "player": player,
-            **await league_context(db, league, player),
+            **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
     )
 
@@ -249,7 +249,7 @@ async def event_page(
             "by_team": by_team,
             "totals": totals,
             "player": player,
-            **await league_context(db, league, player),
+            **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
     )
 

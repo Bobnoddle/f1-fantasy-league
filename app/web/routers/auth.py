@@ -13,6 +13,7 @@ used.
 
 from __future__ import annotations
 
+import hmac
 import random
 import re
 import secrets
@@ -25,6 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import League, Team
+from app.provider.base import ProviderError
 from app.repo.postgres import LeagueRepo
 from app.services.scoring import ensure_season_seeded
 from app.web.deps import NotFoundError, get_db, optional_player, require_player
@@ -59,7 +61,12 @@ async def login_page(request: Request, next: str = "/me"):
     return request.app.state.templates.TemplateResponse(
         request,
         "login.html",
-        {"player": await optional_player(request), "next": next, "error": None},
+        {
+            "player": await optional_player(request),
+            "next": next,
+            "error": None,
+            "csrf_token": request.state.session.csrf_token,
+        },
     )
 
 
@@ -69,7 +76,13 @@ async def signup_page(request: Request, db: AsyncSession = Depends(get_db)):
     return request.app.state.templates.TemplateResponse(
         request,
         "signup.html",
-        {"player": player, "seasons": _seasons(), "error": None, "form": {}},
+        {
+            "player": player,
+            "seasons": _seasons(),
+            "error": None,
+            "form": {},
+            "csrf_token": request.state.session.csrf_token,
+        },
     )
 
 
@@ -80,7 +93,6 @@ async def create_league(
     season: int = Form(...),
     team_size: str = Form(""),
     pick_deadline: int = Form(600),
-    discord_id: str = Form(""),
     display_name: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
@@ -90,9 +102,17 @@ async def create_league(
         display = (display_name or name).strip()[:80]
         if not display:
             return _error(request, "Enter a display name so players know who you are.")
+        # Always a guest here, never a Discord identity.
+        #
+        # This route used to accept a discord_id form field and hand it straight
+        # to upsert_player, which returns the *existing* player for a matching
+        # (provider, external_id). Anyone could therefore POST a victim's
+        # snowflake and be signed in as them, inheriting their leagues and any
+        # league they administer. Discord identity comes only from the verified
+        # OAuth callback.
         player = await LeagueRepo(db).upsert_player(
-            provider="discord" if discord_id.strip() else "guest",
-            external_id=discord_id.strip() or None,
+            provider="guest",
+            external_id=None,
             display_name=display,
         )
 
@@ -102,7 +122,19 @@ async def create_league(
 
     # The draft needs a driver grid, and the admin panel shows a computed team
     # size. Seed it now rather than discovering an empty pool at draft start.
-    await ensure_season_seeded(db, int(season))
+    #
+    # Upstream may simply not have the season yet — a new year has no published
+    # drivers — or be down. Neither is the player's fault, and an unhandled
+    # ProviderError here meant every such signup was a 500.
+    try:
+        await ensure_season_seeded(db, int(season))
+    except ProviderError as exc:
+        return _error(
+            request,
+            f"That season isn't available yet. {exc} Try a season that has "
+            "started, or create the league and add drivers later.",
+            f"/signup?season={int(season)}&name={name}",
+        )
 
     code = await _unique_code(db, name)
     repo = LeagueRepo(db)
@@ -145,7 +177,6 @@ async def login(
     session = request.state.session
     session.player_id = player.id
     session.changed = True
-    db.info["csrf_token"] = session.csrf_token
 
     return RedirectResponse(_safe_next(next), status_code=303)
 
@@ -192,8 +223,16 @@ async def discord_callback(
     settings = request.app.state.settings
     session = request.state.session
 
-    if not code or state != getattr(session, "oauth_state", None):
+    # Constant-time: the comparison is against a secret the browser was just
+    # handed, and a mismatch means a replayed or forged callback.
+    expected = session.oauth_state
+    if not code or not expected or not hmac.compare_digest(state, expected):
         return _error(request, "That sign-in link expired. Try again.", "/login")
+
+    # Single use. Without this, one captured callback URL could be replayed to
+    # keep signing in as whoever it names.
+    session.oauth_state = None
+    session.changed = True
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         token_resp = await client.post(
@@ -287,7 +326,7 @@ async def join_page(code: str, request: Request, db: AsyncSession = Depends(get_
             "csrf_token": request.state.session.csrf_token,
             "already": await _already_joined(db, league.id, player.id),
             "state": league.state,
-            **await league_context(db, league, player),
+            **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
     )
 
@@ -305,6 +344,13 @@ async def do_join(
     if league is None:
         raise NotFoundError(f"No league called {code!r}")
 
+    # Enforced here, not just by hiding the button. A team added mid-draft has no
+    # slot in the pick order, so the round and pick counters the hub shows go
+    # wrong and the new team can never pick. Joining an archived league is
+    # equally meaningless.
+    if league.state in ("drafting", "active", "archived"):
+        return RedirectResponse(f"/l/{league.code}?error=signup-closed", status_code=303)
+
     added = await repo.join(league.id, player)
     if added is not None:
         count = await db.scalar(select(func.count(Team.id)).where(Team.league_id == league.id))
@@ -314,8 +360,9 @@ async def do_join(
 
         # Guests get a private way back in. Without one, a guest who clears their
         # cookie has lost their team: signing in by name mints a *new* player and
-        # the old team is stranded.
-        reissued = await issue_rejoin(db, player)
+        # the old team is stranded. Scoped to this league, so joining a second one
+        # leaves the first link working.
+        reissued = await issue_rejoin(db, player, league.id)
         if reissued is not None:
             return RedirectResponse(
                 f"/welcome/{league.code}?token={reissued.token}", status_code=303
@@ -342,7 +389,7 @@ async def welcome(code: str, request: Request, token: str = "", db: AsyncSession
             "rejoin_url": (
                 f"{request.app.state.settings.app_url}{rejoin_path(token)}" if token else ""
             ),
-            **await league_context(db, league, player),
+            **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
     )
 

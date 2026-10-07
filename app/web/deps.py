@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import League, Player
-from app.web.session import Session
+from app.web.session import CSRF_FIELD, CSRF_HEADER, Session
 
 
 class NeedsLoginError(Exception):
@@ -78,5 +78,55 @@ async def require_admin(request: Request, code: str) -> Player:
     return player
 
 
-# Convenience aliases for route signatures.
-DbSession = Annotated = Depends(get_db)
+class BadCsrfError(Exception):
+    """Raised when a state-changing request has no valid CSRF token."""
+
+
+#: Methods that change state. GET and HEAD are exempt.
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+async def csrf_guard(request: Request) -> None:
+    """Reject any unsafe request without a valid CSRF token.
+
+    SameSite=Lax already stops the classic cross-site form POST in current
+    browsers, but not same-site or subdomain attackers, and not non-browser
+    clients. The comparison is constant-time because the token is a secret.
+
+    Applied as an app-level dependency rather than per route, so adding a route
+    cannot produce an unguarded one.
+    """
+    if request.method not in _UNSAFE_METHODS:
+        return
+
+    session: Session = request.state.session
+    supplied = request.headers.get(CSRF_HEADER)
+    if supplied is None:
+        supplied = await form_csrf_token(request)
+
+    if not supplied or not session.verify_csrf(supplied):
+        raise BadCsrfError()
+
+
+async def form_csrf_token(request: Request) -> str | None:
+    """Read the CSRF token out of a request body, tolerating anything odd.
+
+    Returns None when the token simply is not there, which is the rejection
+    path — so a wrong content type must not raise, and must not turn into a 500
+    on a request that was going to be rejected anyway.
+
+    ``request.form()`` is awaited rather than reading ``request._form``: in
+    current Starlette that attribute is a coroutine, and reading it without
+    awaiting leaves an un-awaited coroutine that yields nothing. Every POST was
+    rejected because of it.
+    """
+    try:
+        form = await request.form()
+        value = form.get(CSRF_FIELD)
+    except Exception:
+        return None
+    return value if isinstance(value, str) else None
+
+
+# Convenience alias for route signatures.
+DbSession = Depends(get_db)

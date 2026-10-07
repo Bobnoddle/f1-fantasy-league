@@ -14,8 +14,20 @@ from app.domain.scoring import rank
 from app.models import Draft, Event, League, Player, Score, Team
 
 
-async def league_context(db: AsyncSession, league: League, player: Player | None) -> dict:
-    """Everything the base template needs, computed once per request."""
+async def league_context(
+    db: AsyncSession,
+    league: League,
+    player: Player | None,
+    *,
+    csrf_token: str | None = None,
+) -> dict:
+    """Everything the base template needs, computed once per request.
+
+    ``csrf_token`` is a parameter rather than something stashed on the session
+    object. It used to come from ``db.info``, and every router spread this dict
+    *after* its own ``"csrf_token"`` key, so the None here silently overwrote
+    the real token and every form rendered value="None".
+    """
     ctx: dict = {
         "league": league,
         "player": player,
@@ -24,7 +36,7 @@ async def league_context(db: AsyncSession, league: League, player: Player | None
         "my_points": None,
         "team_count": 0,
         "is_admin": False,
-        "csrf_token": None,
+        "csrf_token": csrf_token,
     }
 
     ctx["team_count"] = (
@@ -35,7 +47,6 @@ async def league_context(db: AsyncSession, league: League, player: Player | None
         return ctx
 
     ctx["is_admin"] = league.admin_player_id == player.id
-    ctx["csrf_token"] = getattr(db, "info", {}).get("csrf_token")
 
     team = await db.scalar(
         select(Team).where(Team.league_id == league.id, Team.player_id == player.id)

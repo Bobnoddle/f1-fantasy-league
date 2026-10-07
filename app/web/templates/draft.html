@@ -37,8 +37,11 @@
             {% if your_turn %}
               You are on the clock
             {% else %}
-              {% if on_clock %}{{ rosters and (names_lookup.get(on_clock) if names_lookup else '') or '' }}{% endif %}
-              Waiting on {{ on_clock | default('—') }}
+              {% if on_clock %}
+                Waiting on {{ names_lookup.get(on_clock, 'someone') if names_lookup else 'someone' }}
+              {% else %}
+                Waiting on nobody
+              {% endif %}
             {% endif %}
           </div>
           <div class="small muted mt">

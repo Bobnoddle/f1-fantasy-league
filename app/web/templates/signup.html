@@ -15,6 +15,7 @@
   <section class="panel mt">
     <div class="panel__body">
       <form method="post" action="/signup">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="field">
           <label>League name</label>
           <input type="text" name="name" required maxlength="120"
@@ -32,11 +33,7 @@
           <label>Your display name</label>
           <input type="text" name="display_name" required maxlength="80" placeholder="e.g. Dave">
         </div>
-        <div class="field">
-          <label>Discord user ID <span class="muted">(optional)</span></label>
-          <input type="text" name="discord_id" placeholder="leave blank for no Discord">
-          <span class="hint">Only needed if you want announcements to actually mention you.</span>
-        </div>
+        {# No Discord ID field, deliberately. A typed ID is not a verified one. #}
         {% endif %}
 
         <div class="row" style="gap:12px; align-items:flex-start">

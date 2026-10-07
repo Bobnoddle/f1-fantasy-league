@@ -11,15 +11,15 @@ import uuid
 
 import pytest
 
-from tests.helpers import add_players, close_all, make_league, sign_in
+from tests.helpers import add_players, close_all, make_league, post, sign_in
 
 
 async def start_draft(admin, code: str, names: list[str]):
     """Open signup, add players, close, start. Returns a live client per player."""
-    await admin.post(f"/l/{code}/admin/action", data={"action": "open-signup"})
+    await post(admin, f"/l/{code}/admin/action", {"action": "open-signup"})
     players = await add_players(admin, names, code)
-    await admin.post(f"/l/{code}/admin/action", data={"action": "close-signup"})
-    resp = await admin.post(f"/l/{code}/admin/action", data={"action": "start-draft"})
+    await post(admin, f"/l/{code}/admin/action", {"action": "close-signup"})
+    resp = await post(admin, f"/l/{code}/admin/action", {"action": "start-draft"})
     assert resp.status_code == 303, resp.text
     return {"Admin": admin, **players}
 
@@ -43,7 +43,7 @@ async def test_turn_is_checked_before_the_driver(client):
     players = await start_draft(client, code, ["Sam", "Priya"])
 
     for _name, c in players.items():
-        resp = await c.post(f"/l/{code}/draft/pick", data={"driver_id": str(uuid.uuid4())})
+        resp = await post(c, f"/l/{code}/draft/pick", {"driver_id": str(uuid.uuid4())})
         if "not-your-turn" in resp.headers.get("location", ""):
             break
     else:
@@ -56,7 +56,7 @@ async def test_a_draft_cannot_start_until_two_players_join(client):
     await sign_in(client, "Admin")
     code = await make_league(client)
 
-    resp = await client.post(f"/l/{code}/admin/action", data={"action": "start-draft"})
+    resp = await post(client, f"/l/{code}/admin/action", {"action": "start-draft"})
     assert "need-2-players" in resp.headers["location"]
 
     # The panel explains it when you follow the redirect.
@@ -142,9 +142,9 @@ async def test_a_player_outside_the_league_cannot_pick(client):
     from tests.helpers import sibling
 
     other = sibling(client)
-    await other.post("/login", data={"display_name": "Outsider", "next": "/me"})
+    await post(other, "/login", {"display_name": "Outsider", "next": "/me"})
 
-    resp = await other.post(f"/l/{code}/draft/pick", data={"driver_id": str(uuid.uuid4())})
+    resp = await post(other, f"/l/{code}/draft/pick", {"driver_id": str(uuid.uuid4())})
     assert resp.status_code == 303
     assert "/draft" in resp.headers["location"]
 
@@ -185,7 +185,7 @@ async def test_picking_advances_the_cursor(client):
     page = await on_clock.get(f"/l/{code}/draft/pick")
     driver_id = page.text.split('name="driver_id" value="')[1].split('"')[0]
 
-    resp = await on_clock.post(f"/l/{code}/draft/pick", data={"driver_id": driver_id})
+    resp = await post(on_clock, f"/l/{code}/draft/pick", {"driver_id": driver_id})
     assert resp.status_code == 303
     assert "picked" in resp.headers["location"]
 
@@ -205,7 +205,7 @@ async def test_picking_out_of_turn_is_refused(client):
 
     refused = 0
     for _name, c in players.items():
-        resp = await c.post(f"/l/{code}/draft/pick", data={"driver_id": str(uuid.uuid4())})
+        resp = await post(c, f"/l/{code}/draft/pick", {"driver_id": str(uuid.uuid4())})
         if resp.status_code == 303 and "not-your-turn" in resp.headers["location"]:
             refused += 1
 
@@ -222,7 +222,7 @@ async def test_a_picked_driver_disappears_from_the_picker(client):
     _, first = await on_the_clock(players, code)
     page = await first.get(f"/l/{code}/draft/pick")
     driver_id = page.text.split('name="driver_id" value="')[1].split('"')[0]
-    await first.post(f"/l/{code}/draft/pick", data={"driver_id": driver_id})
+    await post(first, f"/l/{code}/draft/pick", {"driver_id": driver_id})
 
     _, second = await on_the_clock(players, code)
     nxt = await second.get(f"/l/{code}/draft/pick")

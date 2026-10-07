@@ -18,9 +18,6 @@ CREATE TABLE IF NOT EXISTS player (
                              CHECK (provider IN ('discord','guest')),
     external_id  text,           -- Discord snowflake; NULL for guests
     display_name text NOT NULL,
-    -- Guests have no external identity, so they get a magic link back into
-    -- their own account. Stored hashed: it is a bearer credential.
-    rejoin_hash   text,
     created_at   timestamptz NOT NULL DEFAULT now(),
     -- Guests are unique on name within a league, so uniqueness is enforced per
     -- league on `team` rather than here where a NULL external_id would collide
@@ -184,6 +181,25 @@ CREATE TABLE IF NOT EXISTS subscription (
     created_at        timestamptz NOT NULL DEFAULT now(),
     UNIQUE (league_id)
 );
+
+-- ── Guest magic links ───────────────────────────────────────────────────────
+-- One token per (league, player), not per player.
+--
+-- With a single hash on `player`, joining a second league overwrote the first
+-- league's token: the guest lost their recovery link for league A permanently,
+-- with no route to a new one. A player can be in several leagues and needs a
+-- way back into each.
+CREATE TABLE IF NOT EXISTS rejoin_token (
+    league_id   uuid NOT NULL REFERENCES league(id) ON DELETE CASCADE,
+    player_id   uuid NOT NULL REFERENCES player(id) ON DELETE CASCADE,
+    token_hash  text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    expires_at  timestamptz NOT NULL,
+    used_at     timestamptz,
+    PRIMARY KEY (league_id, player_id)
+);
+
+CREATE INDEX IF NOT EXISTS rejoin_token_hash_idx ON rejoin_token (token_hash);
 
 -- ── Cron coordination ───────────────────────────────────────────────────────
 -- Railway skips a scheduled run if the previous one is still going. This table

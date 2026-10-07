@@ -13,14 +13,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import get_settings
-from app.web.deps import NeedsAdminError, NeedsLoginError, NotFoundError
+from app.discord.client import close_shared_client
+from app.web.deps import (
+    BadCsrfError,
+    NeedsAdminError,
+    NeedsLoginError,
+    NotFoundError,
+    csrf_guard,
+)
 from app.web.session import COOKIE, SessionCodec
 
 log = logging.getLogger(__name__)
@@ -44,7 +51,9 @@ def create_app() -> FastAPI:
         app.state.settings = settings
         yield
         # Must dispose, or uvicorn never exits cleanly and Railway leaves the
-        # old container running during a deploy.
+        # old container running during a deploy. The shared webhook pool is
+        # part of that: an undisposed httpx client keeps the loop from closing.
+        await close_shared_client()
         await engine.dispose()
 
     app = FastAPI(
@@ -52,6 +61,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
+        # Applied to every route on the app, so a newly added route cannot
+        # accidentally ship without it. This was previously a function nobody
+        # called, and all nine POSTs were reachable cross-site.
+        #
+        # A dependency rather than middleware: @app.middleware runs under
+        # BaseHTTPMiddleware, whose Request object is not the one the route
+        # sees, so parsing the form there drains the stream and every POST
+        # arrives with an empty body.
+        dependencies=[Depends(csrf_guard)],
     )
     app.state.engine = engine
     app.state.db_factory = session_factory
@@ -73,6 +91,7 @@ def create_app() -> FastAPI:
     async def session_middleware(request: Request, call_next):
         """Attach a session and a database connection for every request."""
         request.state.session = codec.decode(request.cookies.get(COOKIE))
+
         # The middleware owns the transaction rather than a `yield` dependency.
         # Dependency teardown ordering around the response is easy to get wrong,
         # and a lost commit is far worse than a lost abstraction.
@@ -100,6 +119,19 @@ def create_app() -> FastAPI:
     async def not_found(request: Request, exc: NotFoundError):
         return templates.TemplateResponse(
             request, "error.html", {"code": 404, "message": exc.message}, status_code=404
+        )
+
+    @app.exception_handler(BadCsrfError)
+    async def bad_csrf(request: Request, exc: BadCsrfError):
+        """A stale or forged form. Reloading gives a fresh token."""
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "code": 403,
+                "message": "That form expired. Go back, reload the page and try again.",
+            },
+            status_code=403,
         )
 
     @app.exception_handler(NeedsLoginError)

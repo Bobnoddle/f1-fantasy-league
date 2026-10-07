@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -70,20 +71,60 @@ def clean_database(database: str):
 def stub_provider(monkeypatch):
     """Never hit the network from a web test.
 
-    League creation seeds the season grid, which would otherwise make every
-    signup test wait on Jolpica. The simulate CI job is what verifies the real
-    provider end to end.
+    Only ``drivers`` was stubbed before. Seeding also calls ``event_result``
+    three times to work out who actually started, each a live HTTPS request to
+    api.jolpi.ca with up to three retries and a backoff — so every signup test
+    was quietly a network test, and CI started failing on upstream 429s that had
+    nothing to do with the code under test. The simulate job is what verifies
+    the real provider.
+
+    Round 1 is a full 20-car grid with five drivers lapped, which is what makes
+    the "lapped is still classified" scoring rule reachable from a web test.
     """
-    from app.provider.base import Driver
+    from app.provider.base import Driver, DriverResult, EventResult, Race, Status
     from app.provider.jolpica import JolpicaProvider
 
     async def fake_drivers(self, season: int) -> list[Driver]:
         return [
-            Driver(code=f"D{i:02d}", name=f"Driver {i}", constructor="Test Racing")
+            Driver(code=f"D{i:02d}", name=f"Driver {i:02d}", constructor="Test Racing")
             for i in range(20)
         ]
 
+    async def fake_event_result(self, season: int, round_number: int, kind):
+        if round_number != 1:
+            return None
+        return EventResult(
+            season=season,
+            round=1,
+            kind=kind,
+            name="Test Grand Prix",
+            results=[
+                DriverResult(
+                    code=f"D{i:02d}",
+                    status=Status.FINISHED if i < 15 else Status.LAPPED,
+                    position=i + 1,
+                    grid=i + 1,
+                    fastest_lap=(i == 3),
+                    quali=i // 2 + 1,
+                )
+                for i in range(20)
+            ],
+        )
+
+    async def fake_calendar(self, season: int):
+        return [
+            Race(
+                round=n,
+                name=f"Round {n}",
+                date=datetime(2025, 3, 1, tzinfo=UTC) + timedelta(days=14 * n),
+                sprint_date=None,
+            )
+            for n in range(1, 5)
+        ]
+
     monkeypatch.setattr(JolpicaProvider, "drivers", fake_drivers)
+    monkeypatch.setattr(JolpicaProvider, "event_result", fake_event_result)
+    monkeypatch.setattr(JolpicaProvider, "calendar", fake_calendar)
 
 
 @pytest.fixture

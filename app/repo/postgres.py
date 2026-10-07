@@ -91,17 +91,22 @@ class PostgresDraftRepo(DraftRepository):
         The roster primary key is the concurrency guard: if two players race for
         the same driver, this raises IntegrityError and the caller reports it.
         No SELECT-then-INSERT check, because that would be a race.
+
+        Wrapped in a savepoint so the caller can undo just this insert. Rolling
+        back the whole session would also discard the draft cursor and the
+        expiry this pick had already advanced, leaving the draft stuck.
         """
-        self.s.add(
-            Roster(
-                league_id=league_id,
-                team_id=team_id,
-                driver_id=driver_id,
-                pick_number=pick_number,
-                auto_picked=auto,
+        async with self.s.begin_nested():
+            self.s.add(
+                Roster(
+                    league_id=league_id,
+                    team_id=team_id,
+                    driver_id=driver_id,
+                    pick_number=pick_number,
+                    auto_picked=auto,
+                )
             )
-        )
-        await self.s.flush()
+            await self.s.flush()
 
     async def save_state(self, league_id: UUID, state: domain_draft.DraftState[UUID]) -> None:
         row = await self.s.get(Draft, league_id)

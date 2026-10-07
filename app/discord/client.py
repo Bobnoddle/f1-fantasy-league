@@ -22,6 +22,29 @@ API = "https://discord.com/api/v10/webhooks"
 #: spaced rather than fired in a tight loop.
 _MIN_SEND_GAP = 1.1
 
+#: One pool for the process, closed by the app lifespan.
+#:
+#: A notifier is built per request, so constructing one httpx.AsyncClient per
+#: notifier meant a new socket pool on every draft page load, never closed —
+#: unbounded fd growth, and the app falling over mid-draft.
+_shared: httpx.AsyncClient | None = None
+
+
+def shared_client(timeout: float = 10.0) -> httpx.AsyncClient:
+    """The process-wide HTTP client used by every webhook."""
+    global _shared  # noqa: PLW0603 - one pool per process is the point
+    if _shared is None:
+        _shared = httpx.AsyncClient(timeout=timeout)
+    return _shared
+
+
+async def close_shared_client() -> None:
+    """Dispose the pool. Called from the app lifespan on shutdown."""
+    global _shared  # noqa: PLW0603
+    if _shared is not None:
+        await _shared.aclose()
+        _shared = None
+
 
 class DiscordError(RuntimeError):
     pass
@@ -43,12 +66,19 @@ class WebhookClient:
 
         self._id = webhook_id
         self._token = webhook_token
-        self._client = client or httpx.AsyncClient(timeout=timeout)
+        # Default to the shared pool. A client passed in is still owned by the
+        # caller and closed with it.
         self._owns_client = client is None
+        self._client = client or shared_client(timeout)
         self._gate = asyncio.Lock()
         self._last_send = 0.0
 
     async def aclose(self) -> None:
+        """Close the client, but only if this instance made it.
+
+        With the shared pool there is nothing per-instance to close, and closing
+        the shared pool would break every other request in flight.
+        """
         if self._owns_client:
             await self._client.aclose()
 

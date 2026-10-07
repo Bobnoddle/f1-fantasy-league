@@ -23,6 +23,7 @@
           Joining as <b>{{ player.display_name }}</b>.
         </p>
         <form method="post" action="/join/{{ league.code }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="btn btn--primary btn--block" type="submit">Claim a spot</button>
         </form>
       {% endif %}

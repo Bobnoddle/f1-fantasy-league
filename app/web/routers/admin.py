@@ -26,8 +26,10 @@ from app.models import (
     Score,
     Team,
 )
+from app.provider.base import ProviderError
 from app.repo.postgres import LeagueRepo, PostgresDraftRepo
 from app.services.draft import DraftService
+from app.services.scoring import ensure_season_seeded
 from app.web.deps import get_db, require_admin
 from app.web.view import draft_state, league_context, remaining_seconds, standings_for
 
@@ -39,8 +41,6 @@ async def admin_page(code: str, request: Request, db: AsyncSession = Depends(get
     player = await require_admin(request, code)
     repo = LeagueRepo(db)
     league = await repo.by_code(code)
-
-    db.info["csrf_token"] = request.state.session.csrf_token
 
     teams = (
         await db.scalars(select(Team).where(Team.league_id == league.id).order_by(Team.joined_at))
@@ -73,7 +73,7 @@ async def admin_page(code: str, request: Request, db: AsyncSession = Depends(get
             "countdown_seconds": remaining_seconds(draft),
             "player": player,
             "csrf_token": request.state.session.csrf_token,
-            **await league_context(db, league, player),
+            **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
     )
 
@@ -168,12 +168,35 @@ async def lifecycle_action(
     notifier = repo.notifier_for(league)
 
     teams = await db.scalar(select(func.count(Team.id)).where(Team.league_id == league.id)) or 0
-    grid = (
+
+    # A season with no drivers means one was never seeded — an admin can change
+    # season_year in settings, or reset rolls the season forward, and neither
+    # reseeds. This used to silently substitute 22, which produced a draft
+    # ordering that could never be satisfied: every pick raised "Unknown driver"
+    # and every expiry found no pool, so the league was stuck until another
+    # reset. Seed instead, and refuse clearly if that fails.
+    driver_count = (
         await db.scalar(
             select(func.count(Driver.id)).where(Driver.season_year == league.season_year)
         )
-        or 22
+        or 0
     )
+
+    if driver_count == 0:
+        try:
+            await ensure_season_seeded(db, league.season_year)
+        except ProviderError:
+            return RedirectResponse(f"/l/{league.code}/admin?error=no-drivers", status_code=303)
+        driver_count = (
+            await db.scalar(
+                select(func.count(Driver.id)).where(Driver.season_year == league.season_year)
+            )
+            or 0
+        )
+        if driver_count == 0:
+            return RedirectResponse(f"/l/{league.code}/admin?error=no-drivers", status_code=303)
+
+    grid = driver_count
     size = calc_team_size(teams, grid, league.team_size)
 
     if action == "open-signup":
@@ -236,6 +259,17 @@ async def _archive(db: AsyncSession, league: League) -> None:
     """Snapshot the season, then clear race data but keep the league playable."""
     from app.models import SeasonArchive
     from app.web.view import standings_for
+
+    # Idempotent, per the module's own contract. season_archive is unique on
+    # (league_id, season_year), so a second click used to raise an unhandled
+    # IntegrityError and 500. Archiving an already-archived league is a no-op.
+    if await db.scalar(
+        select(SeasonArchive.id).where(
+            SeasonArchive.league_id == league.id,
+            SeasonArchive.season_year == league.season_year,
+        )
+    ):
+        return
 
     standings, _ = await standings_for(db, league, None)
     champion = standings[0] if standings else None
