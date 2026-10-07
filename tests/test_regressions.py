@@ -74,11 +74,13 @@ async def test_signup_cannot_claim_a_discord_identity(client):
         )
 
     # And the attacker must not be holding the victim's identity.
-    from app.web.session import COOKIE, SessionCodec
+    # Decoded with the app's own codec: the secret comes from the environment,
+    # so a hardcoded one silently decodes to nothing under CI.
+    from app.web.session import COOKIE
 
     jar = attacker.cookies.get(COOKIE)
     assert jar, "the attacker was not signed in at all"
-    assert SessionCodec("test-only-not-a-real-secret").decode(jar).player_id != victim_id, (
+    assert app.state.codec.decode(jar).player_id != victim_id, (
         "the attacker's session carries the victim's player id"
     )
 
@@ -237,9 +239,7 @@ async def test_discord_sign_in_redirects_and_stores_state(client, monkeypatch):
     assert jar, "no session cookie was issued"
 
     expected = resp.headers["location"].split("state=")[1].split("&")[0]
-    from app.web.session import SessionCodec
-
-    session = SessionCodec("test-only-not-a-real-secret").decode(jar)
+    session = client._transport.app.state.codec.decode(jar)
     assert session.oauth_state == expected, (
         "the state in the redirect is not the state in the cookie"
     )
