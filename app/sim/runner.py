@@ -15,12 +15,13 @@ minute, which is what makes "progress the league using real data" practical.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,8 +31,8 @@ from app.notifier import ConsoleNotifier, Notifier
 from app.provider.base import F1Provider, Kind, ProviderError
 from app.repo.postgres import LeagueRepo, PostgresDraftRepo
 from app.services.draft import DraftService
-from app.services.scoring import score_league_event, season_standings
-from app.sim.agents import DriverView, SimAgent, default_roster
+from app.services.scoring import score_league_event, season_standings, seed_season
+from app.sim.agents import DriverView, SimAgent, bot_names, default_roster
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +50,15 @@ class SimConfig:
     time_compression: float = 3600.0  # 1 real second = 1 virtual hour
     discord: bool = False  # False = console only (non-Discord run)
     verbose: bool = True
+
+    #: Add bots to a league that already exists instead of creating one. The
+    #: human keeps their seat, and the draft waits for them to pick.
+    attach: str | None = None
+
+    #: How long a human team may sit on the clock before the pick is settled for
+    #: them, in real seconds. Independent of ``pick_deadline``, which is measured
+    #: on the simulated clock.
+    human_grace: int = 900
 
 
 @dataclass(slots=True)
@@ -140,6 +150,75 @@ class Simulator:
         # Driver count is the real 2026 grid size; matches what seeding loaded.
         return team_size(players, getattr(self, "grid_size", 22), self.cfg.team_size)
 
+    async def attach(self, code: str, season: int) -> League:
+        """Add bots to a league the human already created.
+
+        The point of playing a league locally: you create it in the browser, join
+        it yourself, then run this to fill it with bots and play the season. The
+        existing league is reused — never deleted — so the human keeps their team
+        and their admin rights.
+
+        The human is not an agent, so the draft hands the clock to them and waits
+        rather than picking for them.
+        """
+        league = await self.repo.by_code(code)
+        if league is None:
+            raise LookupError(
+                f"No league called {code!r}. Create it at /signup first, "
+                "or drop --attach to have the simulator make one."
+            )
+
+        if league.season_year != season:
+            raise ValueError(
+                f"League {code!r} is for {league.season_year}, not {season}. "
+                f"Re-run with --season {league.season_year}, or change it in the "
+                "admin panel."
+            )
+
+        drivers = await seed_season(self.s, self.provider, season)
+        self.grid_size = drivers
+        self._say(f"seeded {drivers} starting drivers for {season}")
+
+        bots = default_roster(bot_names(self.cfg.players), seed=self.cfg.seed)
+
+        added = 0
+        for agent in bots:
+            player = await self._bot_player(league, agent.name)
+            if await self.repo.join(league.id, player) is not None:
+                added += 1
+
+        self.agents = bots
+        await self.repo.set_state(league.id, "draft_ready")
+        total = await self.s.scalar(select(func.count(Team.id)).where(Team.league_id == league.id))
+        await self._announce(league, "signup_updated", total or 0, self._team_size(total or 0))
+
+        self.report.league_id = league.id
+        self._say(f"{added} bot(s) added to {league.name!r}; {total} teams in the league")
+        if added == 0:
+            self._say("every bot was already in the league — nothing added")
+        return league
+
+    async def _bot_player(self, league: League, name: str):
+        """The bot called ``name``, creating it only if it is not here yet.
+
+        upsert_player deliberately makes a new player every time for a guest,
+        because two humans who pick the same display name are two people. That
+        is right for guests and wrong for bots: re-attaching would add a second
+        "Bot 1" alongside the first. So bots are matched on their name within
+        this league.
+        """
+        existing = await self.s.scalar(
+            select(Team.player_id).where(Team.league_id == league.id, Team.display_name == name)
+        )
+        if existing is not None:
+            from app.models import Player
+
+            found = await self.s.get(Player, existing)
+            if found is not None:
+                return found
+
+        return await self.repo.upsert_player(provider="guest", external_id=None, display_name=name)
+
     # ── Draft ────────────────────────────────────────────────────────────────
 
     async def run_draft(self, league: League) -> SimReport:
@@ -160,6 +239,15 @@ class Simulator:
         names = await self.draft_repo.team_display_names(league.id)
         by_team = {team_id: self._agent_for(display) for team_id, display in names.items()}
 
+        # Teams nobody here is simulating. When attaching to a league the human
+        # made, that is their team: the draft must hand them the clock and wait,
+        # not pick on their behalf.
+        simulated = {agent.name for agent in self.agents}
+        human_teams = {t for t, display in names.items() if display not in simulated}
+        if human_teams:
+            who = ", ".join(sorted(names[t] for t in human_teams))
+            self._say(f"leaving the clock to: {who}")
+
         guard = 0
         max_turns = 500
         while guard < max_turns:
@@ -172,6 +260,15 @@ class Simulator:
             on_clock = state.on_the_clock
             if on_clock is None:
                 break
+
+            if on_clock in human_teams:
+                # Not ours to pick. Wait for the human to open the picker and
+                # choose, and if they wander off, settle the pick for them so
+                # the draft still finishes.
+                if await self._await_human(league, on_clock, names):
+                    self.report.picks += 1
+                await self.s.commit()
+                continue
 
             agent = by_team.get(on_clock) or SimAgent(str(on_clock)[:8])
 
@@ -189,6 +286,7 @@ class Simulator:
                 if outcome is not None:
                     self.report.auto_picks += 1
                     self.report.picks += 1
+                await self.s.commit()
                 continue
 
             # Well inside the window, so the pick is honoured.
@@ -199,6 +297,15 @@ class Simulator:
             picked = await self._pick_for(league, on_clock, agent, names)
             if not picked:
                 break
+
+            # Commit every turn.
+            #
+            # The web app reads on its own connection, so an uncommitted draft is
+            # invisible to it: the human's own page still showed a pending draft
+            # and refused to open the picker. The web layer deliberately flushes
+            # and lets its middleware commit, but a long-running CLI owns its
+            # transaction outright.
+            await self.s.commit()
 
         self.report.total_picks = guard
         self.report.rosters = await self.repo.rosters(league.id)
@@ -265,6 +372,49 @@ class Simulator:
         return owned
 
     # ── Season ───────────────────────────────────────────────────────────────
+
+    async def _await_human(self, league: League, team_id, names: dict) -> bool:
+        """Hand the clock to a human team and wait for their pick.
+
+        Polls rather than sleeping on a fixed delay, so a pick made in the
+        browser is picked up immediately. The pick itself is written by the web
+        request — this only watches for the cursor to move.
+
+        If they do nothing within the grace window the pick is settled for them,
+        which is the same path a real timeout takes, so walking away from the
+        draft still produces a complete roster.
+        """
+        import time
+
+        who = names.get(team_id, "someone")
+        self._say(f"   · waiting for {who} to pick in the browser…")
+
+        deadline = time.monotonic() + self.cfg.human_grace
+        poll = 0.5
+        while time.monotonic() < deadline:
+            await asyncio.sleep(poll)
+            state = await self.draft_repo.get_state(league.id)
+            if state is None or state.on_the_clock != team_id:
+                self._say(f"   · {who} picked")
+                return True
+            if state.status.value != "drafting":
+                return False
+
+        self._say(f"   · {who} ran out of time — settling the pick for them")
+        # Cross the deadline on the simulated clock first. advance_if_expired
+        # compares pick_expires_at against the clock, and the pick was armed at
+        # now + deadline, so without this it sees nothing to do and the loop
+        # waits again for a human who has already walked away.
+        self.clock.advance(self.cfg.pick_deadline + 5)  # type: ignore[union-attr]
+        outcome = await self.draft.advance_if_expired(
+            league.id,
+            getattr(self, "grid_size", 22),
+            self.cfg.pick_deadline,
+            display_names=names,
+        )
+        if outcome is not None:
+            self.report.auto_picks += 1
+        return outcome is not None
 
     async def run_season(
         self,

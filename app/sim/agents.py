@@ -141,6 +141,16 @@ class SimAgent:
         return rng.choice([d for d in available if pools[d.constructor] == biggest])
 
 
+def bot_names(count: int) -> list[str]:
+    """Stable bot display names.
+
+    Deterministic and numbered from 1 so re-running ``--attach`` against the
+    same league re-uses the same bots instead of creating a second set of
+    "Bot 1" rows under different player ids.
+    """
+    return [f"Bot {i + 1}" for i in range(count)]
+
+
 def default_roster(
     names: list[str],
     *,

@@ -128,11 +128,27 @@ def stub_provider(monkeypatch):
 
 
 @pytest.fixture
-def app(clean_database: str):
-    """A fresh application bound to the test database."""
+async def app(clean_database: str):
+    """A fresh application bound to the test database.
+
+    Disposes the engine on teardown. httpx's ASGITransport does not run the
+    app's lifespan, so the dispose that shutdown normally does never fires —
+    leaving one connection pool per test, which is what made the suite appear to
+    hang at exit rather than fail.
+
+    Async so the dispose happens on the test's own loop. Doing it via
+    asyncio.run() opened a second loop, and the pool's connections belong to the
+    first — producing "attached to a different loop" and "Event loop is closed"
+    noise that looked like an application fault.
+    """
     from app.web.app import create_app
 
-    return create_app()
+    application = create_app()
+    yield application
+
+    engine = getattr(application.state, "engine", None)
+    if engine is not None:
+        await engine.dispose()
 
 
 @pytest.fixture
@@ -143,3 +159,29 @@ def client(app):
         base_url="http://testserver",
         follow_redirects=False,
     )
+
+
+@pytest.fixture
+def fake_season(monkeypatch):
+    """Replace Jolpica with a fixed four-round season, sprints included.
+
+    Shared: the CLI and attach tests both need it, and a fixture defined in one
+    test module is invisible to the next.
+    """
+    from app.provider.jolpica import JolpicaProvider
+    from tests import sim_season
+
+    async def drivers(self, season: int):
+        return sim_season.drivers(season)
+
+    async def calendar(self, season: int):
+        return sim_season.calendar()
+
+    async def event_result(self, season: int, round_number: int, kind):
+        if kind == "sprint" and round_number not in sim_season.SPRINT_ROUNDS:
+            return None
+        return sim_season.event_result(round_number, kind)
+
+    monkeypatch.setattr(JolpicaProvider, "drivers", drivers)
+    monkeypatch.setattr(JolpicaProvider, "calendar", calendar)
+    monkeypatch.setattr(JolpicaProvider, "event_result", event_result)

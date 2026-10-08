@@ -12,98 +12,9 @@ are all real; only the HTTP is not.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
-import pytest
 from sqlalchemy import func, select
 
 from app.models import Event, League, Roster, Score
-
-_CONSTRUCTORS = ["Alpha Racing", "Beta Racing", "Gamma Racing"]
-
-#: Rounds that have a sprint weekend, so the sprint scoring path is exercised.
-_SPRINT_ROUNDS = (3, 6)
-
-_SCHEDULE = [
-    ("Australian Grand Prix", 1, 0),
-    ("Chinese Grand Prix", 2, 14),
-    ("Japanese Grand Prix", 3, 28),
-    ("Bahrain Grand Prix", 4, 42),
-]
-
-
-def _calendar():
-    from app.provider.base import Race
-
-    return [
-        Race(
-            round=round_number,
-            name=name,
-            date=datetime(2025, 3, 1, tzinfo=UTC) + timedelta(days=days),
-            sprint_date=(
-                datetime(2025, 3, 1, tzinfo=UTC) + timedelta(days=days - 1)
-                if round_number in _SPRINT_ROUNDS
-                else None
-            ),
-        )
-        for name, round_number, days in _SCHEDULE
-    ]
-
-
-def _event_result(round_number: int, kind):
-    from app.provider.base import DriverResult, EventResult, Status
-
-    name = next(n for n, r, _ in _SCHEDULE if r == round_number)
-
-    return EventResult(
-        season=2025,
-        round=round_number,
-        kind=kind,
-        name=f"{name} (sprint)" if kind == "sprint" else name,
-        results=[
-            DriverResult(
-                code=f"D{i:02d}",
-                # Lapped drivers are still classified. Scoring them as a DNF
-                # was the highest-impact bug in this project, so the fixture
-                # deliberately contains them.
-                status=Status.FINISHED if i < 15 else Status.LAPPED,
-                position=i + 1,
-                grid=i + 1,
-                fastest_lap=(i == 3),
-                quali=i // 2 + 1,
-            )
-            for i in range(20)
-        ],
-    )
-
-
-@pytest.fixture
-def fake_season(monkeypatch):
-    """Replace Jolpica with a fixed four-round season, sprints included."""
-    from app.provider.base import Driver
-    from app.provider.jolpica import JolpicaProvider
-
-    async def drivers(self, season: int):
-        return [
-            Driver(
-                code=f"D{i:02d}",
-                name=f"Driver {i:02d}",
-                constructor=_CONSTRUCTORS[i % len(_CONSTRUCTORS)],
-            )
-            for i in range(20)
-        ]
-
-    async def calendar(self, season: int):
-        return _calendar()
-
-    async def event_result(self, season: int, round_number: int, kind):
-        if kind == "sprint" and round_number not in _SPRINT_ROUNDS:
-            return None
-        return _event_result(round_number, kind)
-
-    monkeypatch.setattr(JolpicaProvider, "drivers", drivers)
-    monkeypatch.setattr(JolpicaProvider, "calendar", calendar)
-    monkeypatch.setattr(JolpicaProvider, "event_result", event_result)
 
 
 def _argv(**overrides) -> list[str]:
@@ -123,7 +34,9 @@ def _argv(**overrides) -> list[str]:
     argv = ["simulate"]
     for key, value in args.items():
         if value is not None:
-            argv += [f"--{key}", value]
+            # argparse spells flags with dashes; an override key written with an
+            # underscore silently became "--human_grace" and was rejected.
+            argv += [f"--{key.replace('_', '-')}", str(value)]
     argv.append("--quiet")
     return argv
 

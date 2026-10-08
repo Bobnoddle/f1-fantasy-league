@@ -178,20 +178,30 @@ async def run_simulate(args: argparse.Namespace) -> int:
         time_compression=args.speed,
         discord=args.discord,
         verbose=not args.quiet,
+        attach=getattr(args, "attach", None),
+        human_grace=getattr(args, "human_grace", 900),
     )
 
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
-            existing = await session.scalars(
-                select(League.id).where(League.code == config.league_code)
-            )
-            for league_id in existing.all():
-                await session.execute(delete(League).where(League.id == league_id))
-            await session.commit()
+            if config.attach:
+                # The league belongs to a human. Never delete it — that is the
+                # whole point of attaching.
+                pass
+            else:
+                existing = await session.scalars(
+                    select(League.id).where(League.code == config.league_code)
+                )
+                for league_id in existing.all():
+                    await session.execute(delete(League).where(League.id == league_id))
+                await session.commit()
 
             async with JolpicaProvider(retries=settings.fetch_retries) as provider:
                 sim = Simulator(session, provider, config)
-                league = await sim.setup(args.season)
+                if config.attach:
+                    league = await sim.attach(config.attach, args.season)
+                else:
+                    league = await sim.setup(args.season)
                 await sim.run_draft(league)
                 await sim.run_season(league, through_round=args.through)
 
@@ -237,6 +247,22 @@ def main(argv: list[str] | None = None) -> int:
     sim.add_argument("--seed", type=int, default=7)
     sim.add_argument("--speed", type=float, default=1.0, help="time compression")
     sim.add_argument("--discord", action="store_true", help="post to the league webhook")
+    sim.add_argument(
+        "--attach",
+        metavar="CODE",
+        default=None,
+        help=(
+            "Add bots to a league you already created and joined, instead of "
+            "making a new one. Your team is left to you: the draft waits at "
+            "your turn, and picks for you if you walk away."
+        ),
+    )
+    sim.add_argument(
+        "--human-grace",
+        type=int,
+        default=900,
+        help="seconds to wait for your pick before it is settled for you",
+    )
     sim.add_argument("--quiet", action="store_true")
 
     args = parser.parse_args(argv)

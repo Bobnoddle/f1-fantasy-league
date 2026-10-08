@@ -291,19 +291,26 @@ class DraftService:
 
         await self._arm(league_id, next_state, deadline_secs)
         await self.publisher.pick_recorded(league_id, team_id, who, driver_name, remaining, auto)
-        await self._announce_turn(league_id, next_state, deadline_secs)
+        await self._announce_turn(league_id, next_state, deadline_secs, display_names)
         return TurnOutcome(True, next_state, auto, driver_id)
 
     async def _arm(self, league_id: UUID, state: domain_draft.DraftState, deadline: int) -> None:
         await self.repo.set_expiry(league_id, self.clock.now() + timedelta(seconds=deadline))
 
     async def _announce_turn(
-        self, league_id: UUID, state: domain_draft.DraftState, deadline: int
+        self,
+        league_id: UUID,
+        state: domain_draft.DraftState,
+        deadline: int,
+        display_names: dict[UUID, str] | None = None,
     ) -> None:
         team_id = state.on_the_clock
         if team_id is None:
             return
-        await self.publisher.turn_started(league_id, team_id, str(team_id)[:8], deadline)
+        # Fall back to a short id only when the names were not supplied. Announcing
+        # "b837c44f on the clock" tells the person watching nothing useful.
+        who = (display_names or {}).get(team_id) or str(team_id)[:8]
+        await self.publisher.turn_started(league_id, team_id, who, deadline)
 
     async def _announce_complete(
         self, league_id: UUID, display_names: dict[UUID, str] | None
