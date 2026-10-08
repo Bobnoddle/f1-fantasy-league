@@ -77,6 +77,29 @@ draft in the browser.
 A full 2025 season takes roughly 45 seconds, most of it waiting on upstream
 rate limits.
 
+### Deploy with Docker
+
+```bash
+cp .env.example .env      # SESSION_SECRET is the only required value
+docker compose up -d
+```
+
+That starts Postgres, applies the schema once, and serves the app on
+<http://localhost:8080>. Discord stays optional throughout.
+
+The stack also carries the two jobs, on profiles so `up` does not run them:
+
+```bash
+# score finished races — exits when done, so a scheduler can repeat it
+docker compose --profile scheduled run --rm cron
+
+# play a league, sharing the image and the database with the web app
+docker compose --profile simulate run --rm simulator --players 6 --through 5
+docker compose --profile simulate run --rm simulator --attach my-league --players 6
+```
+
+Both are the same image the web service runs, so what you test is what deploys.
+
 ## CLI
 
 | Command | Description |
