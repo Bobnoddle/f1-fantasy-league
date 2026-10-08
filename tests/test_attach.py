@@ -66,14 +66,6 @@ async def test_attach_never_deletes_the_league(app, client, fake_season):
     assert still.admin_player_id == before.admin_player_id
 
 
-@pytest.mark.skip(
-    reason=(
-        "Passes alone, hangs when the file runs in order — two CLI invocations in "
-        "one test leave something behind that blocks the next run. The behaviour "
-        "it checks is real and passes in isolation; the leak is not yet root-"
-        "caused, so it is skipped rather than papered over."
-    )
-)
 async def test_attach_reuses_the_same_bots_on_a_second_run(app, client, fake_season):
     """Deterministic names, so re-running does not create a second Bot 1."""
     code = await _human_league(client)
