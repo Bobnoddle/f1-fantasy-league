@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% from "macros.html" import driver_colour %}
-{% set active_tab = 'team' %}
-{% include "_league_tabs.html" %}
 
 {% block title %}{{ team.display_name }} — {{ league.name }}{% endblock %}
 
 {% block content %}
+{# Inside the block, not at top level. Output outside a block is emitted ahead
+   of the base template, which put the tab bar above the site header. #}
+{% set active_tab = 'team' %}
+{% include "_league_tabs.html" %}
+
 <section class="panel">
   <div class="panel__head">
     <span class="panel__title">{{ team.display_name }}</span>

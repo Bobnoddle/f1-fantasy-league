@@ -78,7 +78,12 @@
         {% else %}
         <div class="panel__body">
           <p class="muted small" style="margin:0">
-            No races scored yet. Results post automatically after each Grand Prix.
+            No races scored yet.
+            {% if league.webhook_id %}
+            Results post to Discord automatically after each Grand Prix.
+            {% else %}
+            Results are scored here after each Grand Prix.
+            {% endif %}
           </p>
         </div>
         {% endif %}

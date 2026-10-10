@@ -36,16 +36,9 @@
     <span class="grow"></span>
 
     <nav class="row" style="gap:12px">
-      {% if league %}
-        <a class="small" href="/l/{{ league.code }}">Standings</a>
-        {% if my_team %}
-          <a class="small" href="/l/{{ league.code }}/team/{{ my_team.id }}">My team</a>
-        {% endif %}
-        <a class="small" href="/l/{{ league.code }}/draft">Draft</a>
-        {% if is_admin %}
-          <a class="small" href="/l/{{ league.code }}/admin">Admin</a>
-        {% endif %}
-      {% endif %}
+      {# No league links here. _league_tabs.html owns league navigation and
+         carries the active-state underline; repeating the same four links in
+         the header was pure duplication. #}
       {% if player %}
         <span class="small muted">{{ player.display_name }}</span>
         <form method="post" action="/logout" style="display:inline">

@@ -1,9 +1,12 @@
 {% extends "base.html" %}
-{% include "_league_tabs.html" %}
 
 {% block title %}Join {{ league.name }}{% endblock %}
 
 {% block content %}
+{# Inside the block: top-level output is emitted ahead of the base template,
+   which put the tab bar above the site header. #}
+{% include "_league_tabs.html" %}
+
 <div style="max-width:460px;margin:40px auto">
   <section class="panel">
     <div class="panel__head">

@@ -117,8 +117,13 @@
     <div class="panel__head"><span class="panel__title">Draft not started</span></div>
     <div class="panel__body stack">
       <p class="small muted" style="margin:0">
-        The admin opens the draft when everyone has joined. You will get a message
-        in the Discord channel when it is your turn — or just watch this page.
+        The admin opens the draft when everyone has joined.
+        {% if league.webhook_id %}
+        You will get a message in the Discord channel when it is your turn, or
+        just watch this page.
+        {% else %}
+        Just watch this page — it shows the draft as it runs.
+        {% endif %}
       </p>
       {% if my_team %}
       <a class="btn" href="/l/{{ league.code }}">Back to standings</a>
