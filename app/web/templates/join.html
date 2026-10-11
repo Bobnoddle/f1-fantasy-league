@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Join {{ league.name }}{% endblock %}
+
+{% block content %}
+{# Inside the block: top-level output is emitted ahead of the base template,
+   which put the tab bar above the site header. #}
+{% include "_league_tabs.html" %}
+
+<div style="max-width:460px;margin:40px auto">
+  <section class="panel">
+    <div class="panel__head">
+      <span class="panel__title">{{ league.name }} · {{ league.season_year }}</span>
+    </div>
+    <div class="panel__body stack">
+      {% if already %}
+        <div class="banner banner--ok">You're already in this league.</div>
+        <a class="btn btn--primary btn--block" href="/l/{{ league.code }}">View standings</a>
+      {% elif state == 'drafting' %}
+        <div class="banner banner--warn">
+          The draft has already started — ask the admin to add you.
+        </div>
+        <a class="btn btn--block" href="/l/{{ league.code }}">View standings</a>
+      {% else %}
+        <p class="small muted" style="margin:0">
+          Joining as <b>{{ player.display_name }}</b>.
+        </p>
+        <form method="post" action="/join/{{ league.code }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn--primary btn--block" type="submit">Claim a spot</button>
+        </form>
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

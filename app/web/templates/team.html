@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "macros.html" import driver_colour %}
+
+{% block title %}{{ team.display_name }} — {{ league.name }}{% endblock %}
+
+{% block content %}
+{# Inside the block, not at top level. Output outside a block is emitted ahead
+   of the base template, which put the tab bar above the site header. #}
+{% set active_tab = 'team' %}
+{% include "_league_tabs.html" %}
+
+<section class="panel">
+  <div class="panel__head">
+    <span class="panel__title">{{ team.display_name }}</span>
+    <span class="small" style="font-weight:600">{{ total|pts }} pts</span>
+  </div>
+  <div class="panel__body panel__body--flush">
+    {% if drivers %}
+    <table class="table">
+      <thead>
+        <tr><th>Driver</th><th>Constructor</th><th class="num">Points</th></tr>
+      </thead>
+      <tbody>
+        {% for d in drivers %}
+        <tr>
+          <td>{{ d.name }} <span class="muted small">{{ d.code }}</span></td>
+          <td class="small muted">{{ driver_colour(d.constructor) }} {{ d.constructor }}</td>
+          <td class="num">{{ d.points|pts }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="panel__body">
+      <p class="muted small" style="margin:0">No drivers picked yet.</p>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<p class="small muted mt">
+  <a href="/l/{{ league.code }}">Back to standings</a> ·
+  <a href="/rules">How scoring works</a>
+</p>
+{% endblock %}

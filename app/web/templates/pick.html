@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "macros.html" import driver_colour %}
+
+{#
+  The picker. Select-and-close: one tap takes the driver and the page says so
+  plainly. No confirmation step — the tap is the commitment, and a second
+  "are you sure?" on a 30-second timer is how people miss their own pick.
+#}
+{% block title %}Pick — {{ league.name }}{% endblock %}
+
+{% block content %}
+<form method="post" action="/l/{{ league.code }}/draft/pick">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <section class="panel">
+    <div class="panel__head">
+      <span class="panel__title">
+        Round {{ state.round_number }} · Pick {{ state.pick_in_round }} of {{ state.team_ids|length }}
+      </span>
+      {% if countdown_seconds is not none %}
+      <span id="countdown" class="countdown">{{ countdown_seconds // 60 }}:{{ '%02d' % (countdown_seconds % 60) }}</span>
+      {% endif %}
+    </div>
+    <div class="panel__body">
+      <div class="row row--between">
+        <div class="small">
+          <div style="font-size:15px;font-weight:600">{{ my_team.display_name }}, it's your turn.</div>
+          <div class="muted">Tap a driver to take them. Auto-picks if the timer runs out.</div>
+        </div>
+        {% if mine %}
+        <div class="small muted" style="text-align:right">
+          <div style="font-size:12px;text-transform:uppercase;letter-spacing:.06em">Your team</div>
+          <div>{{ mine|map(attribute='name')|join(' · ') }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <div class="picker mt">
+    {% for constructor, drivers in view.by_constructor.items() %}
+    <div class="ctor">
+      <div class="ctor__head">
+        <span>{{ driver_colour(constructor) }} {{ constructor }}</span>
+        <span class="muted">{{ drivers|length }} left</span>
+      </div>
+      {% for driver in drivers %}
+      <button class="driver" type="submit" name="driver_id" value="{{ driver.id }}">
+        <span>{{ driver.name }}</span>
+        <span class="driver__code">#{{ loop.index }}</span>
+      </button>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="small muted center mt">
+    {{ view.total }} driver{{ 's' if view.total != 1 }} available.
+    After you pick you can close this tab.
+  </p>
+</form>
+{% endblock %}

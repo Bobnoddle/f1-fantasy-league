@@ -1,0 +1,95 @@
+{#
+  Base shell.
+
+  The topbar carries the league name and the signed-in player's position on
+  every page. That is deliberate: the most common question a player has is
+  "where am I", and it should never cost more than a glance.
+#}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}F1 Fantasy{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏎</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar__inner">
+    <a class="brand" href="/">F1<span>Fantasy</span></a>
+
+    {% if league %}
+      <a class="league-pill" href="/l/{{ league.code }}" title="View standings">
+        <span>{{ league.name }}</span>
+        <span class="sep">·</span>
+        <span>{{ league.season_year }}</span>
+        {% if my_position %}
+          <span class="sep">·</span>
+          <span><b>{{ my_position }}</b> of {{ team_count }}</span>
+          <span class="sep">·</span>
+          <span>{{ my_points|pts }} pts</span>
+        {% endif %}
+      </a>
+      <span class="state-tag state-tag--{{ league.state }}">{{ league.state.replace('_', ' ') }}</span>
+    {% endif %}
+
+    <span class="grow"></span>
+
+    <nav class="row" style="gap:12px">
+      {# No league links here. _league_tabs.html owns league navigation and
+         carries the active-state underline; repeating the same four links in
+         the header was pure duplication. #}
+      {% if player %}
+        <span class="small muted">{{ player.display_name }}</span>
+        <form method="post" action="/logout" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn--sm btn--ghost" type="submit">Sign out</button>
+        </form>
+      {% else %}
+        <a class="btn btn--sm" href="/login">Sign in</a>
+      {% endif %}
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" style="padding: 28px 20px 0">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <div class="wrap row row--between">
+    <span>F1 Fantasy — data from Jolpica (Ergast-compatible).</span>
+    <span class="row" style="gap:16px">
+      <a href="/leagues">Leagues</a>
+      <a href="/rules">Scoring</a>
+    </span>
+  </div>
+</footer>
+
+{% if countdown_seconds is defined and countdown_seconds is not none %}
+<script>
+  // Countdown is seeded from server time and ticks locally, so the first paint
+  // is never wrong because of a client clock. It is display-only: the
+  // authoritative deadline lives in the database and is re-checked server-side
+  // on every pick submission.
+  (function () {
+    var el = document.getElementById('countdown');
+    if (!el) return;
+    var deadline = Date.now() + {{ countdown_seconds }} * 1000;
+    function tick() {
+      var left = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+      var m = Math.floor(left / 60), s = left % 60;
+      el.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+      el.classList.toggle('countdown--warn', left <= 120 && left > 30);
+      el.classList.toggle('countdown--urgent', left <= 30);
+      if (left === 0) window.location.reload();
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
+</script>
+{% endif %}
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

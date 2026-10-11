@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Pricing{% endblock %}
+
+{% block content %}
+<div style="max-width:840px;margin:24px auto">
+  <div class="row row--between" style="align-items:flex-end">
+    <div>
+      <div class="eyebrow">Pricing</div>
+      <h1 style="margin:0;font-size:28px;letter-spacing:-.02em">Self-host free, or pay us to run it</h1>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="cadence" checked>
+      <span class="switch__track"></span>
+      <span class="small muted" id="cadence-label">Yearly</span>
+    </label>
+  </div>
+
+  <div class="grid-2 mt">
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__title">Self-host</span>
+        <span class="state-tag state-tag--live">free</span>
+      </div>
+      <div class="panel__body stack">
+        <div><span style="font-size:30px;font-weight:700">$0</span></div>
+        <ul class="small muted" style="padding-left:18px;margin:0;line-height:1.9">
+          <li>Unlimited leagues, forever</li>
+          <li>Your own Postgres, your data</li>
+          <li>Full scoring, draft, and standings</li>
+          <li>Discord webhook optional</li>
+        </ul>
+        <a class="btn btn--block" href="https://github.com/Bobnoddle/f1-fantasy-league"
+           target="_blank" rel="noopener">Get the compose file</a>
+      </div>
+    </section>
+
+    <section class="panel" style="border-color:var(--accent)">
+      <div class="panel__head">
+        <span class="panel__title">Hosted</span>
+        <span class="state-tag state-tag--draft">we run it</span>
+      </div>
+      <div class="panel__body stack">
+        <div>
+          <span style="font-size:30px;font-weight:700">$<span id="hosted-price">10</span></span>
+          <span class="muted" id="hosted-period">/year</span>
+          <div class="small muted" id="hosted-alt">$1.00 billed monthly</div>
+        </div>
+        <ul class="small muted" style="padding-left:18px;margin:0;line-height:1.9">
+          <li>Same features, nothing to install</li>
+          <li>Managed database with backups</li>
+          <li>Automatic season rollover</li>
+          <li>Email us if something breaks</li>
+        </ul>
+        <a class="btn btn--primary btn--block" href="/signup">Start on the hosted tier</a>
+        <p class="hint muted" style="margin:0">Just bring your Discord webhook.</p>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Cadence toggle. Yearly is the default because it costs less; monthly is
+  // there because a group of friends may not want a commitment.
+  (function () {
+    var toggle = document.getElementById('cadence');
+    var label = document.getElementById('cadence-label');
+    var price = document.getElementById('hosted-price');
+    var period = document.getElementById('hosted-period');
+    var alt = document.getElementById('hosted-alt');
+
+    function apply() {
+      var annual = toggle.checked;
+      label.textContent = annual ? 'Yearly' : 'Monthly';
+      price.textContent = annual ? '10' : '1';
+      period.textContent = annual ? '/year' : '/month';
+      alt.textContent = annual ? '$1.00 billed monthly' : '$10.00 billed yearly';
+    }
+    toggle.addEventListener('change', apply);
+    apply();
+  })();
+</script>
+{% endblock %}

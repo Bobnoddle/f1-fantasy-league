@@ -1,0 +1,302 @@
+/* F1 Fantasy — one stylesheet.
+ *
+ * Panel-first: a page is a stack of bordered panels inside a fixed-width
+ * column. Two interaction shapes only:
+ *   .panel-stack  select-and-preview (choice swaps a panel, you stay)
+ *   .picker       select-and-close   (one action, then you're done)
+ */
+
+:root {
+  --bg: #0b0e14;
+  --panel: #141924;
+  --panel-2: #1b2130;
+  --line: #262d3d;
+  --text: #e8ecf4;
+  --muted: #8b95ab;
+  --accent: #e8112d;
+  --accent-dim: #ff4d5f;
+  --ok: #3ddc84;
+  --warn: #ffb020;
+  --gold: #f1c40f;
+
+  --radius: 10px;
+  --gap: 16px;
+  --measure: 1080px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Fill the viewport, so the footer sits at the bottom rather than floating
+   mid-page with hundreds of pixels of dead space below it on short pages. */
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+body > main { flex: 1; }
+
+a { color: var(--accent-dim); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, .mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 0.92em;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+
+.wrap { max-width: var(--measure); margin: 0 auto; padding: 0 20px; }
+.stack { display: flex; flex-direction: column; gap: var(--gap); }
+
+/* A column flex container stretches its children, so a shrink-to-fit button
+   inside one spans the whole panel — "Back to standings" rendering 1300px wide
+   was this rule, not the markup. */
+.stack > .btn { align-self: flex-start; }
+.stack > .btn--block { align-self: stretch; }
+.row { display: flex; gap: var(--gap); flex-wrap: wrap; align-items: center; }
+.row--between { justify-content: space-between; }
+.grow { flex: 1; }
+.center { text-align: center; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.nowrap { white-space: nowrap; }
+.mt { margin-top: var(--gap); }
+
+/* ── Topbar ────────────────────────────────────────────────────────────────
+   The league name and your position live here on every page. That is the
+   answer to "how do I find my standing" — it should never be more than one
+   glance away, and never more than one click from the full table. */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(11, 14, 20, 0.94);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar__inner { display: flex; align-items: center; gap: 18px; height: 56px; }
+.brand { font-weight: 700; letter-spacing: -0.01em; color: var(--text); white-space: nowrap; }
+.brand span { color: var(--accent); }
+
+.league-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.league-pill b { color: var(--gold); }
+.league-pill .sep { color: var(--line); }
+
+.state-tag {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.state-tag--live { color: var(--ok); border-color: rgba(61, 220, 132, 0.4); }
+.state-tag--draft { color: var(--warn); border-color: rgba(255, 176, 32, 0.4); }
+
+/* ── Nav ────────────────────────────────────────────────────────────────── */
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: var(--gap); }
+.tabs a {
+  padding: 9px 14px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+}
+.tabs a:hover { color: var(--text); text-decoration: none; }
+.tabs a.is-active { color: var(--text); border-bottom-color: var(--accent); }
+
+/* ── Panels ─────────────────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.panel__title { font-weight: 600; font-size: 14px; }
+.panel__body { padding: 16px; }
+.panel__body--flush { padding: 0; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+@media (max-width: 780px) { .grid-2 { grid-template-columns: 1fr; } }
+
+/* ── Tables ─────────────────────────────────────────────────────────────── */
+
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.table td { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.table tr:last-child td { border-bottom: none; }
+.table tr.is-you { background: rgba(232, 17, 45, 0.08); }
+.table tr.is-you td { font-weight: 600; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table--rank td:first-child { width: 46px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.trend { font-size: 12px; }
+.trend--up { color: var(--ok); }
+.trend--down { color: var(--accent-dim); }
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn:hover { background: #232b3c; text-decoration: none; }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn--primary:hover { background: var(--accent-dim); }
+.btn--ghost { background: transparent; }
+.btn--danger { border-color: rgba(232, 17, 45, 0.5); color: var(--accent-dim); }
+.btn--sm { padding: 5px 10px; font-size: 13px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn--block { width: 100%; }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field label { font-size: 13px; color: var(--muted); font-weight: 500; }
+.field .hint { font-size: 12px; color: var(--muted); }
+input[type="text"], input[type="number"], input[type="email"], select, textarea {
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  width: 100%;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+/* Toggle switch — used for the monthly/annual pricing toggle. */
+.switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; pointer-events: none; }
+.switch__track {
+  width: 44px; height: 24px; border-radius: 999px;
+  background: var(--line); position: relative; transition: background 0.15s;
+}
+.switch__track::after {
+  content: ""; position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--text); transition: transform 0.15s;
+}
+.switch input:checked + .switch__track { background: var(--accent); }
+.switch input:checked + .switch__track::after { transform: translateX(20px); }
+
+/* ── Driver picker (select and close) ───────────────────────────────────── */
+
+.picker { display: grid; gap: 18px; }
+@media (min-width: 900px) { .picker { grid-template-columns: repeat(2, 1fr); } }
+.ctor { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.ctor__head {
+  padding: 8px 12px; background: var(--panel-2);
+  font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+  display: flex; justify-content: space-between;
+}
+.ctor__dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.driver {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 10px 12px; border: none; border-top: 1px solid var(--line);
+  background: transparent; color: var(--text); font: inherit; font-size: 14px;
+  cursor: pointer; text-align: left;
+}
+.driver:hover { background: var(--panel-2); }
+.driver__code { color: var(--muted); font-size: 12px; }
+
+/* ── Countdown ──────────────────────────────────────────────────────────── */
+
+.countdown {
+  font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.countdown--warn { color: var(--warn); }
+.countdown--urgent { color: var(--accent); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.45; } }
+
+/* ── Banners ────────────────────────────────────────────────────────────── */
+
+.banner {
+  padding: 12px 16px; border-radius: 8px; font-size: 14px;
+  border: 1px solid var(--line); background: var(--panel-2);
+}
+.banner--ok { border-color: rgba(61,220,132,0.35); color: var(--ok); }
+.banner--warn { border-color: rgba(255,176,32,0.35); color: var(--warn); }
+.banner--err { border-color: rgba(232,17,45,0.4); color: var(--accent-dim); }
+
+/* ── Hero / landing ──────────────────────────────────────────────────────── */
+
+.hero { padding: 72px 0 48px; text-align: center; }
+.hero h1 { font-size: 44px; line-height: 1.1; margin: 0 0 14px; letter-spacing: -0.03em; }
+.hero p { font-size: 18px; color: var(--muted); max-width: 620px; margin: 0 auto 26px; }
+.hero__actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn--lg { padding: 12px 24px; font-size: 15px; }
+
+.eyebrow {
+  display: inline-block; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--accent); margin-bottom: 12px; font-weight: 600;
+}
+
+.feature { display: flex; gap: 12px; padding: 16px; }
+.feature__icon { font-size: 22px; line-height: 1; }
+.feature h3 { margin: 0 0 4px; font-size: 15px; }
+.feature p { margin: 0; color: var(--muted); font-size: 14px; }
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+
+.footer {
+  border-top: 1px solid var(--line); margin-top: 56px;
+  padding: 24px 0 40px; color: var(--muted); font-size: 13px;
+}
+
+.swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }

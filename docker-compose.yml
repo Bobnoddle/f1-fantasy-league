@@ -1,0 +1,108 @@
+# Local deploy. This file is the whole install story for the OSS tier.
+#
+#   cp .env.example .env      # POSTGRES_PASSWORD and SESSION_SECRET are the only
+#                             # values actually required
+#   docker compose up -d
+#
+# Migrations run on start and are idempotent, so redeploys are safe.
+#
+# Discord is optional. Leave DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET empty
+# and the app runs with no Discord integration at all — announcements go
+# nowhere and every league is still fully playable. Set them and it wires up
+# OAuth and webhooks.
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql+asyncpg://f1fantasy:${POSTGRES_PASSWORD:-f1fantasy}@db:5432/f1fantasy
+  # Optional. Both empty is a valid configuration, not an error.
+  DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+  DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+  SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+  APP_URL: ${APP_URL:-http://localhost:8080}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: f1fantasy
+      POSTGRES_USER: f1fantasy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-f1fantasy}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U f1fantasy -d f1fantasy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot. `docker compose up migrate` before anything else that reads the
+  # schema; `up -d` does not wait for it.
+  migrate:
+    build: .
+    image: f1-fantasy:local
+    command: ["python", "-m", "app.cli", "migrate"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build: .
+    image: f1-fantasy:local
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:${PORT:-8080}/health',timeout=4).status==200 else sys.exit(1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # The scoring job. Exits when finished, so a scheduler can run it repeatedly.
+  #   docker compose run --rm cron
+  # Not started by `up` — it must be run on a schedule, not left resident.
+  cron:
+    build: .
+    image: f1-fantasy:local
+    command: ["python", "-m", "app.cli", "score"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    profiles: ["scheduled"]
+
+  # The league simulator, for trying the app out with bots.
+  #
+  #   docker compose run --rm simulator --attach my-league --players 6
+  #
+  # It shares the image and the database, so what you test is what deploys.
+  # Interactively drives a draft, so give it a terminal rather than -d.
+  simulator:
+    build: .
+    image: f1-fantasy:local
+    entrypoint: ["python", "-m", "app.cli", "simulate"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    stdin_open: true
+    tty: true
+    profiles: ["simulate"]
+
+volumes:
+  pgdata:
