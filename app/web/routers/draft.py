@@ -18,7 +18,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,11 +43,7 @@ async def draft_hub(code: str, request: Request, db: AsyncSession = Depends(get_
         raise NotFoundError(f"No league called {code!r}")
 
     draft = await draft_state(db, league)
-    teams = (
-        await db.scalars(
-            select(Team).where(Team.league_id == league.id).order_by(Team.display_name)
-        )
-    ).all()
+    teams = await _ordered_teams(db, league)
 
     my_team = None
     if player is not None:
@@ -65,16 +61,18 @@ async def draft_hub(code: str, request: Request, db: AsyncSession = Depends(get_
     )
     if rolled is not None:
         draft = await draft_state(db, league)
-        teams = (
-            await db.scalars(
-                select(Team).where(Team.league_id == league.id).order_by(Team.display_name)
-            )
-        ).all()
+        teams = await _ordered_teams(db, league)
 
     state = await drepo.get_state(league.id)
     standings, _ = await standings_for(db, league, player)
 
     rosters = await repo.rosters(league.id)
+
+    # Without this the hub read "Waiting on 3f2a1b9c-…" — it printed the team
+    # id, because the names map was never handed to the page.
+    names = {t.id: t.display_name for t in teams}
+    on_clock = state.on_the_clock if state is not None else None
+    your_turn = bool(my_team and on_clock == my_team.id)
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -90,11 +88,46 @@ async def draft_hub(code: str, request: Request, db: AsyncSession = Depends(get_
             "rolled": rolled,
             "player": player,
             "countdown_seconds": remaining_seconds(draft),
-            # Without this the hub read "Waiting on 3f2a1b9c-…" — it printed
-            # the team id, because the names map was never handed to the page.
-            "names_lookup": {t.id: t.display_name for t in teams},
+            "names_lookup": names,
+            # Both are read from base.html, which sits outside this block — a
+            # `{% set %}` in the content block is invisible to it.
+            "your_turn": your_turn,
+            # Only while the draft actually moves; polling a finished draft
+            # would just reload a page that can never change.
+            "pulse_url": (
+                f"/l/{league.code}/draft/pulse"
+                if state is not None and state.status is DraftStatus.DRAFTING
+                else None
+            ),
             **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
+    )
+
+
+@router.get("/l/{code}/draft/pulse", response_class=JSONResponse)
+async def draft_pulse(code: str, db: AsyncSession = Depends(get_db)):
+    """A cheap "did anything move?" signal for a tab left open on the hub.
+
+    Read-only on purpose. The hub runs ``advance_if_expired`` on every full page
+    load, so the reload this triggers is what settles an expired pick — the poll
+    itself never mutates anything, and so can never advance the cursor while a
+    player is still deciding.
+    """
+    league = await LeagueRepo(db).by_code(code)
+    if league is None:
+        raise NotFoundError(f"No league called {code!r}")
+
+    state = await PostgresDraftRepo(db).get_state(league.id)
+    if state is None:
+        return JSONResponse({"status": None, "current_pick": 0, "on_the_clock": None})
+
+    on_clock = state.on_the_clock
+    return JSONResponse(
+        {
+            "status": state.status.value,
+            "current_pick": state.current_pick,
+            "on_the_clock": str(on_clock) if on_clock is not None else None,
+        }
     )
 
 
@@ -160,6 +193,9 @@ async def pick_page(code: str, request: Request, db: AsyncSession = Depends(get_
             "mine": mine,
             "player": player,
             "countdown_seconds": remaining_seconds(draft),
+            # The picker is only reachable on your own turn, and base.html reads
+            # this from outside the content block to drive the tab title.
+            "your_turn": True,
             "csrf_token": request.state.session.csrf_token,
             **await league_context(db, league, player, csrf_token=request.state.session.csrf_token),
         },
@@ -215,6 +251,22 @@ async def make_pick(
 def _service(db, league, repo):
     drepo = PostgresDraftRepo(db)
     return DraftService(drepo, repo.notifier_for(league)), drepo
+
+
+async def _ordered_teams(db: AsyncSession, league: League) -> list[Team]:
+    """Every team in snake slot order.
+
+    The panel is titled "Draft order", so it has to be in draft order. Sorted by
+    name it read Bot 1 through Bot 6 while Bot 4 was picking, and the slot column
+    (4, 7, 3, 2, 5, 6, 1) looked like noise rather than the snake.
+    """
+    return (
+        await db.scalars(
+            select(Team)
+            .where(Team.league_id == league.id)
+            .order_by(Team.draft_order.asc().nulls_last(), Team.display_name)
+        )
+    ).all()
 
 
 async def _grid_size(db: AsyncSession, league: League) -> int:

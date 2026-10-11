@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "macros.html" import driver_colour %}
 
 {% block title %}Draft — {{ league.name }}{% endblock %}
 
@@ -9,7 +8,13 @@
 
 {% set error = request.query_params.get('error') %}
 {% if request.query_params.get('picked') %}
-  <div class="banner banner--ok">Pick recorded. This tab can be closed.</div>
+  {# Never "close this tab": a closed tab is one that cannot tell you it is
+     your turn again. The tab title is the signal, so say that instead. #}
+  <div class="banner banner--ok">
+    Pick recorded — you are back in the queue. Keep this tab open: the tab title
+    runs the clock and flags <b>YOUR TURN</b> when you are up.
+    <a href="#on-the-clock">Jump to the clock</a>.
+  </div>
 {% endif %}
 {% if error == 'not-your-turn' %}
   <div class="banner banner--warn">It is not your turn yet.</div>
@@ -22,31 +27,39 @@
 {% if state and state.status == 'drafting' %}
   {% set on_clock = state.on_the_clock %}
   {% set your_turn = my_team and on_clock == my_team.id %}
+  {% set team_n = state.team_ids|length %}
+  {% set rounds = (state.total_picks // team_n) if team_n else 0 %}
 
-  <section class="panel">
+  <section id="on-the-clock" class="panel{% if your_turn %} panel--on-clock{% endif %}">
     <div class="panel__head">
-      <span class="panel__title">Draft in progress</span>
+      <span class="row" style="gap:8px">
+        <span class="panel__title">Draft in progress</span>
+        {% if your_turn %}<span class="state-tag state-tag--you">your turn</span>{% endif %}
+      </span>
       {% if countdown_seconds is not none %}
-      <span id="countdown" class="countdown">{{ (countdown_seconds // 60) }}:{{ '%02d' % (countdown_seconds % 60) }}</span>
+      <span class="countdown-wrap">
+        <span class="countdown-label">Auto-pick in</span>
+        <span id="countdown" class="countdown">{{ (countdown_seconds // 60) }}:{{ '%02d' % (countdown_seconds % 60) }}</span>
+      </span>
       {% endif %}
     </div>
     <div class="panel__body">
       <div class="row row--between" style="align-items:flex-start">
         <div>
           <div style="font-size:17px;font-weight:600">
-            {% if your_turn %}
+            {%- if your_turn %}
               You are on the clock
-            {% else %}
-              {% if on_clock %}
-                Waiting on {{ names_lookup.get(on_clock, 'someone') if names_lookup else 'someone' }}
-              {% else %}
-                Waiting on nobody
-              {% endif %}
-            {% endif %}
+            {%- elif on_clock %}
+              Waiting on {{ names_lookup.get(on_clock, 'someone') if names_lookup else 'someone' }}
+            {%- else %}
+              Waiting on nobody
+            {%- endif %}
           </div>
+          {# Three counters, each labelled: "pick 2 of 7 · 21 total picks" read
+             as one number too many. #}
           <div class="small muted mt">
-            Round {{ state.round_number }} · pick {{ state.pick_in_round }} of {{ state.team_count or state.team_ids|length }}
-            · {{ state.total_picks }} total picks
+            Round {{ state.round_number }} of {{ rounds }} · pick {{ state.pick_in_round }} of {{ team_n }}
+            · {{ state.current_pick }} of {{ state.total_picks }} picks made
           </div>
         </div>
         {% if your_turn %}
@@ -61,6 +74,9 @@
       <div class="panel__head"><span class="panel__title">Draft order</span></div>
       <div class="panel__body panel__body--flush">
         <table class="table">
+          <thead>
+            <tr><th>#</th><th>Team</th><th class="num">Picks</th></tr>
+          </thead>
           <tbody>
             {% for team in teams %}
             <tr {% if my_team and team.id == my_team.id %}class="is-you"{% endif %}>
@@ -68,7 +84,7 @@
               <td>{{ team.display_name }}
                 {% if on_clock == team.id %}<span class="state-tag state-tag--draft">picking</span>{% endif %}
               </td>
-              <td class="num muted">{{ roster_counts and roster_counts.get(team.id, 0) or rosters.get(team.display_name, [])|length }}</td>
+              <td class="num muted">{{ rosters.get(team.display_name, [])|length }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -79,19 +95,27 @@
     <section class="panel">
       <div class="panel__head"><span class="panel__title">Teams so far</span></div>
       <div class="panel__body panel__body--flush">
-        {% if rosters %}
+        {% if teams %}
         <table class="table">
+          <thead>
+            <tr><th>Team</th><th>Drivers</th></tr>
+          </thead>
           <tbody>
-            {% for name, drivers in rosters.items() %}
-            <tr>
-              <td style="width:130px">{{ name }}</td>
-              <td class="small muted">{{ drivers|join(' · ') }}</td>
+            {% for team in teams %}
+            {% set drivers = rosters.get(team.display_name, []) %}
+            <tr {% if my_team and team.id == my_team.id %}class="is-you"{% endif %}>
+              <td style="width:130px">{{ team.display_name }}</td>
+              {% if drivers %}
+              <td class="small">{{ drivers|join(' · ') }}</td>
+              {% else %}
+              <td class="small muted empty-slot">No picks yet</td>
+              {% endif %}
             </tr>
             {% endfor %}
           </tbody>
         </table>
         {% else %}
-        <div class="panel__body"><p class="muted small" style="margin:0">No picks yet.</p></div>
+        <div class="panel__body"><p class="muted small" style="margin:0">No teams yet.</p></div>
         {% endif %}
       </div>
     </section>

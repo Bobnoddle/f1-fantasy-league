@@ -18,7 +18,10 @@
         Round {{ state.round_number }} · Pick {{ state.pick_in_round }} of {{ state.team_ids|length }}
       </span>
       {% if countdown_seconds is not none %}
-      <span id="countdown" class="countdown">{{ countdown_seconds // 60 }}:{{ '%02d' % (countdown_seconds % 60) }}</span>
+      <span class="countdown-wrap">
+        <span class="countdown-label">Auto-pick in</span>
+        <span id="countdown" class="countdown">{{ countdown_seconds // 60 }}:{{ '%02d' % (countdown_seconds % 60) }}</span>
+      </span>
       {% endif %}
     </div>
     <div class="panel__body">
@@ -56,7 +59,7 @@
 
   <p class="small muted center mt">
     {{ view.total }} driver{{ 's' if view.total != 1 }} available.
-    After you pick you can close this tab.
+    One tap takes them — no confirmation step.
   </p>
 </form>
 {% endblock %}

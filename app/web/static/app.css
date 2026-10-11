@@ -85,6 +85,23 @@ code, .mono {
   border-bottom: 1px solid var(--line);
 }
 .topbar__inner { display: flex; align-items: center; gap: 18px; height: 56px; }
+/* Five items wider than a phone, in a bar with a fixed height and no wrap: they
+   overflowed the bar instead of taking a second row. Measured at 390px before
+   the fix, the nav was 84px tall across a 57px bar (y=-14 to y=70) and reached
+   x=390 with no gutter; the league pill's text wrapped to two lines inside a
+   one-line bar. Wrapped and auto-height below 780px — the same breakpoint
+   .grid-2 uses. */
+@media (max-width: 780px) {
+  .topbar__inner {
+    height: auto;
+    min-height: 56px;
+    flex-wrap: wrap;
+    padding: 9px 20px;
+    gap: 10px;
+  }
+  .topbar__inner .grow { display: none; }
+  .topbar__inner nav { margin-left: auto; }
+}
 .brand { font-weight: 700; letter-spacing: -0.01em; color: var(--text); white-space: nowrap; }
 .brand span { color: var(--accent); }
 
@@ -112,6 +129,7 @@ code, .mono {
 }
 .state-tag--live { color: var(--ok); border-color: rgba(61, 220, 132, 0.4); }
 .state-tag--draft { color: var(--warn); border-color: rgba(255, 176, 32, 0.4); }
+.state-tag--you { color: var(--accent-dim); border-color: rgba(232, 17, 45, 0.5); }
 
 /* ── Nav ────────────────────────────────────────────────────────────────── */
 
@@ -146,6 +164,11 @@ code, .mono {
 .panel__body { padding: 16px; }
 .panel__body--flush { padding: 0; }
 
+/* The one panel a player must spot at a glance: their own clock. Amber is
+   reserved for "someone else is picking" — red is theirs and nobody else's. */
+.panel--on-clock { border-color: rgba(232, 17, 45, 0.55); }
+.panel--on-clock .panel__head { background: rgba(232, 17, 45, 0.1); }
+
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
 @media (max-width: 780px) { .grid-2 { grid-template-columns: 1fr; } }
 
@@ -169,6 +192,8 @@ code, .mono {
 .table tr.is-you td { font-weight: 600; }
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .table--rank td:first-child { width: 46px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* A row with nothing in it still has to look deliberate, not broken. */
+.table .empty-slot { font-style: italic; }
 
 .trend { font-size: 12px; }
 .trend--up { color: var(--ok); }
@@ -259,6 +284,13 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .countdown {
   font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+}
+/* Labelled, not bare: "7:16" on its own answers neither "whose clock" nor
+   "what happens when it hits zero". */
+.countdown-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.countdown-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--muted);
 }
 .countdown--warn { color: var(--warn); }
 .countdown--urgent { color: var(--accent); animation: pulse 1s infinite; }

@@ -167,7 +167,11 @@ async def test_the_picker_lists_every_unpicked_driver(client):
     page = await on_clock.get(f"/l/{code}/draft/pick")
     assert page.status_code == 200
     assert page.text.count('name="driver_id"') == 20
-    assert "you can close this tab" in page.text.lower()
+    # "After you pick you can close this tab" was here. A closed tab is exactly
+    # the one that cannot tell you it is your turn again, so both the picker and
+    # the confirmation banner stopped saying it.
+    assert "close this tab" not in page.text.lower()
+    assert "auto-pick in" in page.text.lower()
 
     await close_all(players)
 

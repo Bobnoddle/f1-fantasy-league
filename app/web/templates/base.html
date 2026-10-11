@@ -72,20 +72,54 @@
   // is never wrong because of a client clock. It is display-only: the
   // authoritative deadline lives in the database and is re-checked server-side
   // on every pick submission.
+  //
+  // The tab title is the only signal that survives the page being backgrounded,
+  // so it carries the clock — and flags your own turn, because a player who
+  // tabbed away is the one most likely to miss it.
   (function () {
     var el = document.getElementById('countdown');
-    if (!el) return;
+    var base = document.title;
+    var yourTurn = {% if your_turn %}true{% else %}false{% endif %};
     var deadline = Date.now() + {{ countdown_seconds }} * 1000;
     function tick() {
       var left = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
       var m = Math.floor(left / 60), s = left % 60;
-      el.textContent = m + ':' + (s < 10 ? '0' : '') + s;
-      el.classList.toggle('countdown--warn', left <= 120 && left > 30);
-      el.classList.toggle('countdown--urgent', left <= 30);
+      var clock = m + ':' + (s < 10 ? '0' : '') + s;
+      if (el) {
+        el.textContent = clock;
+        el.classList.toggle('countdown--warn', left <= 120 && left > 30);
+        el.classList.toggle('countdown--urgent', left <= 30);
+      }
+      document.title = yourTurn
+        ? (left % 2 ? '\u25cb ' : '\u25cf ') + 'YOUR TURN \u00b7 ' + clock + ' \u2014 ' + base
+        : clock + ' \u2014 ' + base;
       if (left === 0) window.location.reload();
     }
     tick();
     setInterval(tick, 1000);
+  })();
+</script>
+{% endif %}
+
+{% if pulse_url is defined and pulse_url %}
+<script>
+  // The hub is server-rendered, so "live" means: notice a change, reload.
+  // That is not a shortcut — a reload is what runs advance_if_expired, so the
+  // polling tab is also what settles a pick whose deadline passed. The poll
+  // itself is read-only and can never move the cursor out from under a player.
+  (function () {
+    var seen = null;
+    setInterval(function () {
+      fetch({{ pulse_url|tojson }}, { headers: { accept: 'application/json' }, credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d) return;
+          var key = d.status + '|' + d.current_pick + '|' + d.on_the_clock;
+          if (seen === null) { seen = key; return; }
+          if (key !== seen) window.location.reload();
+        })
+        .catch(function () { /* transient; the next tick retries */ });
+    }, 4000);
   })();
 </script>
 {% endif %}
