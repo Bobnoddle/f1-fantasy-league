@@ -59,14 +59,18 @@ bots to **your** league:
 python -m app.cli simulate --attach your-league-code --players 6 --through 5
 ```
 
-The league is reused, never rebuilt — you keep your team and your admin rights.
-The bots pick around you; when it is your turn the draft **waits** for you, and
-settles the pick for you if you walk away. Leave it running in a terminal and
-draft in the browser.
+The league is reused, never rebuilt — you keep your team and your admin
+rights. `--season` defaults to the league's own season when attaching, so
+it can be omitted. If the draft is already running (you started it from
+the admin panel), the simulator resumes it where it left off rather than
+starting over. The bots pick around you; when it is your turn the draft
+**waits** for you, and settles the pick for you if you walk away. Leave
+it running in a terminal and draft in the browser.
 
 | Flag | Meaning |
 |---|---|
 | `--attach CODE` | Add bots to an existing league instead of creating one |
+| `--season YEAR` | Season to simulate; defaults to the league's own when attaching, else 2025 |
 | `--signup-only` | Add the bots and stop. Leaves the draft to start from the panel |
 | `--players N` | How many bots (default 6) |
 | `--through N` | Stop after round N; omit to play the full season |

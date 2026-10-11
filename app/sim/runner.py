@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clock import Clock, SimulatedClock
+from app.domain.draft import DraftStatus
 from app.models import Event, League, Roster, Team
 from app.notifier import ConsoleNotifier, Notifier
 from app.provider.base import F1Provider, Kind, ProviderError
@@ -80,6 +81,10 @@ class SimReport:
     final_standings: list = field(default_factory=list)
     integrity_conflicts: int = 0
     total_picks: int = 0
+    #: The draft reached "complete" — whether this run played it out
+    # or found it already finished. Distinguishes "nothing to do"
+    # from "nothing happened", which the CLI's exit code needs.
+    draft_complete: bool = False
 
 
 class Simulator:
@@ -155,13 +160,18 @@ class Simulator:
         # Driver count is the real 2026 grid size; matches what seeding loaded.
         return team_size(players, getattr(self, "grid_size", 22), self.cfg.team_size)
 
-    async def attach(self, code: str, season: int) -> League:
+    async def attach(self, code: str, season: int | None = None) -> League:
         """Add bots to a league the human already created.
 
         The point of playing a league locally: you create it in the browser, join
         it yourself, then run this to fill it with bots and play the season. The
         existing league is reused — never deleted — so the human keeps their team
         and their admin rights.
+
+        ``season`` defaults to the league's own. The CLI's ``--season``
+        default used to be 2025, so attaching to a 2026 league died here
+        on a mismatch before a single bot picked; only an explicitly
+        requested season can mismatch now.
 
         The human is not an agent, so the draft hands the clock to them and waits
         rather than picking for them.
@@ -172,6 +182,9 @@ class Simulator:
                 f"No league called {code!r}. Create it at /signup first, "
                 "or drop --attach to have the simulator make one."
             )
+
+        if season is None:
+            season = league.season_year
 
         if league.season_year != season:
             raise ValueError(
@@ -193,7 +206,12 @@ class Simulator:
                 added += 1
 
         self.agents = bots
-        await self.repo.set_state(league.id, "draft_ready")
+        # Only ever move the league forward. A draft already in progress
+        # must not be rewound to draft_ready: the admin panel keys its
+        # progress buttons on this state, and joining is locked once
+        # drafting starts, so rewinding would also re-open signup.
+        if league.state in ("created", "signup_open"):
+            await self.repo.set_state(league.id, "draft_ready")
         total = await self.s.scalar(select(func.count(Team.id)).where(Team.league_id == league.id))
         await self._announce(league, "signup_updated", total or 0, self._team_size(total or 0))
 
@@ -232,14 +250,33 @@ class Simulator:
         An agent may deliberately blow its deadline. That is the point: the
         timeout path is the easiest thing to break and the hardest to test by
         hand.
+
+        A draft already in progress is resumed, not restarted. The admin
+        panel starts the draft from its own button, so by the time the
+        simulator attaches the cursor may already have moved; calling
+        ``start`` again would reshuffle the order and reset the cursor,
+        orphaning every pick already made.
         """
-        await self.repo.set_state(league.id, "drafting")
-        await self.draft.start(
-            league.id,
-            season_drivers=getattr(self, "grid_size", 22),
-            size_override=self.cfg.team_size,
-            deadline_secs=self.cfg.pick_deadline,
-        )
+        existing = await self.draft_repo.get_state(league.id)
+        if existing is not None and existing.status is DraftStatus.DRAFTING:
+            remaining = existing.total_picks - existing.current_pick
+            self._say(
+                f"resuming the draft in progress — {remaining} of {existing.total_picks} picks left"
+            )
+        elif existing is None or existing.status is not DraftStatus.COMPLETE:
+            await self.repo.set_state(league.id, "drafting")
+            await self.draft.start(
+                league.id,
+                season_drivers=getattr(self, "grid_size", 22),
+                size_override=self.cfg.team_size,
+                deadline_secs=self.cfg.pick_deadline,
+            )
+        else:
+            # A finished draft has nothing to replay. Restarting it
+            # would reset the cursor on a roster that is already
+            # full, leaving every turn unresolvable with an empty
+            # pool. The season below is still scored.
+            self._say("draft already complete — nothing to replay")
 
         names = await self.draft_repo.team_display_names(league.id)
         by_team = {team_id: self._agent_for(display) for team_id, display in names.items()}
@@ -272,8 +309,13 @@ class Simulator:
                 # the draft still finishes.
                 if await self._await_human(league, on_clock, names):
                     self.report.picks += 1
-                await self.s.commit()
-                continue
+                    await self.s.commit()
+                    continue
+                # The pick was not settled and the clock did not move:
+                # either the draft ended mid-wait, or no drivers remain
+                # to pick. This turn will never resolve, so stop rather
+                # than spend the whole turn budget spinning on it.
+                break
 
             agent = by_team.get(on_clock) or SimAgent(str(on_clock)[:8])
 
@@ -291,8 +333,12 @@ class Simulator:
                 if outcome is not None:
                     self.report.auto_picks += 1
                     self.report.picks += 1
-                await self.s.commit()
-                continue
+                    await self.s.commit()
+                    continue
+                # The timeout could not be settled — no drivers
+                # remain, or the draft ended mid-turn. Stop rather
+                # than spin the turn budget on an unresolvable pick.
+                break
 
             # Well inside the window, so the pick is honoured.
             self.clock.advance(  # type: ignore[union-attr]
@@ -313,6 +359,11 @@ class Simulator:
             await self.s.commit()
 
         self.report.total_picks = guard
+        # The loop ends when the draft stops being "drafting". Reading
+        # the final state back distinguishes "finished" from "stuck on
+        # a full roster", which the exit code depends on.
+        final = await self.draft_repo.get_state(league.id)
+        self.report.draft_complete = final is not None and final.status is DraftStatus.COMPLETE
         self.report.rosters = await self.repo.rosters(league.id)
         self.report.final_standings = await season_standings(self.s, league.id)
         await self.draft.publisher.draft_complete(self.repo.context(league), self.report.rosters)

@@ -200,9 +200,13 @@ async def run_simulate(args: argparse.Namespace) -> int:
             async with JolpicaProvider(retries=settings.fetch_retries) as provider:
                 sim = Simulator(session, provider, config)
                 if config.attach:
+                    # The league's season is authoritative; attach()
+                    # resolves it from the league when --season was
+                    # omitted, so a 2026 league is not refused over a
+                    # default that was never asked for.
                     league = await sim.attach(config.attach, args.season)
                 else:
-                    league = await sim.setup(args.season)
+                    league = await sim.setup(args.season if args.season is not None else 2025)
 
                 # Attach with --signup-only fills the roster and stops. The
                 # admin opens and closes signup, and starts the draft, from the
@@ -226,7 +230,13 @@ async def run_simulate(args: argparse.Namespace) -> int:
                 print(await sim.summarise(league))
 
             result = sim.report
-            ok = result.picks > 0 and (result.races_scored > 0 or args.through is None)
+            # "Nothing to do" is not "nothing happened": an attach can
+            # legitimately find the draft already complete and the
+            # rounds already scored. The gate stays strict for a league
+            # built from scratch, which is what CI runs.
+            drafted = result.picks > 0 or result.draft_complete
+            scored = result.races_scored > 0 or result.events_skipped > 0 or args.through is None
+            ok = drafted and scored
             if not ok:
                 log.error(
                     "simulate: picks=%d races=%d — expected a completed draft",
@@ -249,7 +259,14 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("migrate", help="apply the database schema")
 
     sim = sub.add_parser("simulate", help="play a simulated league against real data")
-    sim.add_argument("--season", type=int, default=2025, help="season to simulate")
+    sim.add_argument(
+        "--season",
+        type=int,
+        default=None,
+        help=(
+            "season to simulate. Defaults to the league's own season when attaching, otherwise 2025"
+        ),
+    )
     sim.add_argument("--players", type=int, default=6)
     sim.add_argument("--through", type=int, default=None, help="stop after this round")
     sim.add_argument("--pick-deadline", type=int, default=600)

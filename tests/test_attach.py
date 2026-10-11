@@ -14,7 +14,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import func, select
 
-from app.models import League, Roster, Team
+from app.models import Driver, League, Roster, Team
 from tests.helpers import make_league, post, sign_in
 from tests.test_sim_cli import run_sim
 
@@ -24,10 +24,10 @@ def anyio_backend():
     return "asyncio"
 
 
-async def _human_league(client, name: str = "My League") -> str:
+async def _human_league(client, name: str = "My League", season: int = 2025) -> str:
     """A league the signed-in player created and joined, exactly as the browser does."""
     await sign_in(client, "Dave")
-    return await make_league(client, name=name)
+    return await make_league(client, name=name, season=season)
 
 
 # ── Attaching ───────────────────────────────────────────────────────────────
@@ -67,10 +67,26 @@ async def test_attach_never_deletes_the_league(app, client, fake_season):
 
 
 async def test_attach_reuses_the_same_bots_on_a_second_run(app, client, fake_season):
-    """Deterministic names, so re-running does not create a second Bot 1."""
+    """Deterministic names, so re-running does not create a second Bot 1.
+
+    The second run also has nothing to draft: the roster is full. It
+    used to restart the draft anyway — resetting the cursor on a full
+    roster — which left the draft "drafting" with no drivers left to
+    pick, and could spin the turn budget trying.
+    """
+    from app.models import Draft
+
     code = await _human_league(client)
     await run_sim(attach=code, players="3", through="1", human_grace="1")
-    await run_sim(attach=code, players="3", through="1", human_grace="1")
+
+    async with app.state.db_factory() as db:
+        league_id = (await db.scalars(select(League.id).where(League.code == code))).one()
+        finished = await db.get(Draft, league_id)
+        assert finished.status == "complete"
+        cursor_before = finished.current_pick
+        order_before = list(finished.pick_order)
+
+    assert await run_sim(attach=code, players="3", through="1", human_grace="1") == 0
 
     async with app.state.db_factory() as db:
         count = await db.scalar(
@@ -78,7 +94,16 @@ async def test_attach_reuses_the_same_bots_on_a_second_run(app, client, fake_sea
             .join(League, League.id == Team.league_id)
             .where(League.code == code)
         )
+        draft = await db.get(Draft, league_id)
+
     assert count == 4, f"expected Dave plus 3 bots, found {count} teams"
+    # The finished draft was left exactly as it was: not restarted,
+    # not rewound, not stranded in "drafting" on a full roster.
+    assert draft.status == "complete", (
+        f"a second run restarted a finished draft (status={draft.status})"
+    )
+    assert draft.current_pick == cursor_before
+    assert list(draft.pick_order) == order_before
 
 
 async def test_attach_to_a_missing_league_fails_clearly(app, client, fake_season):
@@ -133,6 +158,134 @@ async def test_attach_refuses_a_season_mismatch(app, client, fake_season):
     code = await _human_league(client)
 
     assert await run_sim(attach=code, season="2024", players="2", through="1") != 0
+
+
+async def test_attach_defaults_to_the_leagues_season(app, client, fake_season):
+    """The CLI's ``--season`` default used to be 2025, so the documented
+    attach command against a 2026 league died on a mismatch before a
+    single bot picked — no pick, no error the user could act on, just
+    an exit. Omitting ``--season`` must mean "the league's own year"."""
+    code = await _human_league(client, season=2026)
+
+    # season=None omits the flag, so the CLI must resolve the
+    # league's own year rather than its 2025 default.
+    assert await run_sim(attach=code, season=None, players="2", through="1", human_grace="1") == 0
+
+    async with app.state.db_factory() as db:
+        league = (await db.scalars(select(League).where(League.code == code))).one()
+        drivers = await db.scalar(
+            select(func.count()).select_from(Driver).where(Driver.season_year == league.season_year)
+        )
+        picks = await db.scalar(
+            select(func.count(Roster.driver_id)).where(Roster.league_id == league.id)
+        )
+
+    assert league.season_year == 2026
+    assert drivers == 20, "the league's own season was not seeded"
+    assert picks > 0, "no bot picked — the draft never ran"
+
+
+async def test_attaching_to_a_running_draft_resumes_it(app, client, fake_season):
+    """The admin panel starts the draft; the simulator attaches afterwards.
+
+    ``run_draft`` used to call ``DraftService.start`` unconditionally,
+    which rebuilt the pick order from scratch and reset the cursor —
+    reshuffling the order the panel had announced and orphaning every
+    pick already made.
+    """
+    from app.models import Draft
+    from app.repo.postgres import LeagueRepo, PostgresDraftRepo
+    from app.services.draft import DraftService
+
+    code = await _human_league(client)
+
+    async with app.state.db_factory() as db:
+        repo = LeagueRepo(db)
+        league = await repo.by_code(code)
+        for name in ("Bot 1", "Bot 2"):
+            player = await repo.upsert_player(provider="guest", external_id=None, display_name=name)
+            await repo.join(league.id, player)
+
+        drepo = PostgresDraftRepo(db)
+        service = DraftService(drepo)
+        started = await service.start(league.id, 20, None, 600)
+        await repo.set_state(league.id, "drafting")
+
+        # One pick, by whoever the shuffle put on the clock.
+        pool = [d for d, _, _ in await drepo.get_available_drivers(league.id)]
+        first_team = started.on_the_clock
+        await service.pick(league.id, first_team, pool[0], 600)
+        await db.commit()
+
+        state = await drepo.get_state(league.id)
+        order_before = list(state.pick_order)
+        cursor_before = state.current_pick
+
+    assert cursor_before == 1, "the opening pick was not recorded"
+
+    assert await run_sim(attach=code, players="2", through="1", human_grace="1") == 0
+
+    async with app.state.db_factory() as db:
+        league_id = (await db.scalars(select(League.id).where(League.code == code))).one()
+        draft = await db.get(Draft, league_id)
+        roster = (
+            await db.execute(
+                select(Roster.team_id, Roster.driver_id)
+                .where(Roster.league_id == league_id)
+                .order_by(Roster.pick_number)
+            )
+        ).all()
+        counts = (
+            await db.execute(
+                select(Roster.team_id, func.count(Roster.driver_id))
+                .where(Roster.league_id == league_id)
+                .group_by(Roster.team_id)
+            )
+        ).all()
+
+    # The order the panel announced is the order that was played.
+    assert [str(t) for t in draft.pick_order] == [str(t) for t in order_before], (
+        "attaching reshuffled the pick order"
+    )
+    # The opening pick survived, in place, on the same team.
+    assert (first_team, pool[0]) in roster
+    assert roster[0] == (first_team, pool[0]), "the first pick was replayed or moved"
+    # Equal rosters: no team picked twice or was skipped.
+    assert {n for _, n in counts} == {6}, counts
+
+
+async def test_attach_does_not_rewind_a_drafting_league(app, client, fake_season):
+    """attach() used to set the league back to draft_ready, which re-opens
+    signup on a league whose draft is already running."""
+    from app.models import Draft
+    from app.repo.postgres import LeagueRepo, PostgresDraftRepo
+    from app.services.draft import DraftService
+
+    code = await _human_league(client)
+
+    async with app.state.db_factory() as db:
+        repo = LeagueRepo(db)
+        league = await repo.by_code(code)
+        # A draft needs a field: give the league two bots before
+        # starting it, exactly as signup would have.
+        for name in ("Bot 1", "Bot 2"):
+            player = await repo.upsert_player(provider="guest", external_id=None, display_name=name)
+            await repo.join(league.id, player)
+        drepo = PostgresDraftRepo(db)
+        service = DraftService(drepo)
+        await service.start(league.id, 20, None, 600)
+        await repo.set_state(league.id, "drafting")
+        await db.commit()
+
+    assert await run_sim(attach=code, players="2", signup_only=True) == 0
+
+    async with app.state.db_factory() as db:
+        league_id = (await db.scalars(select(League.id).where(League.code == code))).one()
+        state = (await db.scalars(select(League.state).where(League.id == league_id))).one()
+        draft = await db.get(Draft, league_id)
+
+    assert state == "drafting", f"attach rewound the league to {state!r}"
+    assert draft.status == "drafting"
 
 
 # ── The human gets a real turn ──────────────────────────────────────────────
