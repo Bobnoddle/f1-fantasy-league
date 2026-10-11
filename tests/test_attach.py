@@ -85,6 +85,49 @@ async def test_attach_to_a_missing_league_fails_clearly(app, client, fake_season
     assert await run_sim(attach="no-such-league", players="2", through="1") != 0
 
 
+async def test_signup_only_fills_the_roster_without_starting_the_draft(app, client, fake_season):
+    """`--attach` alone opens, closes and plays the draft — consuming signup,
+    which is the admin's to run from the panel. `--signup-only` stops after
+    joining the bots."""
+    from app.models import Draft, League, Team
+
+    code = await _human_league(client)
+
+    assert await run_sim(attach=code, players="6", signup_only=True) == 0
+
+    async with app.state.db_factory() as db:
+        league = (await db.scalars(select(League).where(League.code == code))).one()
+        teams = (await db.scalars(select(Team).where(Team.league_id == league.id))).all()
+        draft = await db.get(Draft, league.id)
+
+    names = {t.display_name for t in teams}
+    assert "Dave" in names
+    assert sum(1 for n in names if n.startswith("Bot ")) == 6
+
+    # The draft was not started, and the season was not scored.
+    assert league.state in ("created", "signup_open", "draft_ready"), league.state
+    assert draft is None or draft.status in ("pending", "draft_ready"), (
+        "signup-only started the draft"
+    )
+
+
+async def test_signup_only_is_idempotent(app, client, fake_season):
+    """Running it twice must not double the bots."""
+    from app.models import Team
+
+    code = await _human_league(client)
+    await run_sim(attach=code, players="6", signup_only=True)
+    await run_sim(attach=code, players="6", signup_only=True)
+
+    async with app.state.db_factory() as db:
+        count = await db.scalar(
+            select(func.count(Team.id))
+            .join(League, League.id == Team.league_id)
+            .where(League.code == code)
+        )
+    assert count == 7, f"expected Dave plus 6 bots, found {count} teams"
+
+
 async def test_attach_refuses_a_season_mismatch(app, client, fake_season):
     """Silently seeding a different season would leave an undraftable league."""
     code = await _human_league(client)

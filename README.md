@@ -67,6 +67,7 @@ draft in the browser.
 | Flag | Meaning |
 |---|---|
 | `--attach CODE` | Add bots to an existing league instead of creating one |
+| `--signup-only` | Add the bots and stop. Leaves the draft to start from the panel |
 | `--players N` | How many bots (default 6) |
 | `--through N` | Stop after round N; omit to play the full season |
 | `--pick-deadline` | Pick window in seconds (default 600) |

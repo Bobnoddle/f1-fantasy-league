@@ -60,6 +60,11 @@ class SimConfig:
     #: on the simulated clock.
     human_grace: int = 900
 
+    #: Stop after signing the bots up, leaving the draft untouched. Signup is a
+    #: thing the admin controls from the panel, so attaching should not silently
+    #: consume it.
+    signup_only: bool = False
+
 
 @dataclass(slots=True)
 class SimReport:

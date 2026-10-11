@@ -33,10 +33,18 @@ def _argv(**overrides) -> list[str]:
 
     argv = ["simulate"]
     for key, value in args.items():
-        if value is not None:
-            # argparse spells flags with dashes; an override key written with an
-            # underscore silently became "--human_grace" and was rejected.
-            argv += [f"--{key.replace('_', '-')}", str(value)]
+        if value is None:
+            continue
+        # argparse spells flags with dashes; an override key written with an
+        # underscore silently became "--human_grace" and was rejected.
+        flag = f"--{key.replace('_', '-')}"
+        if isinstance(value, bool):
+            # store_true flags take no value; passing one is rejected as an
+            # unrecognized argument.
+            if value:
+                argv.append(flag)
+            continue
+        argv += [flag, str(value)]
     argv.append("--quiet")
     return argv
 

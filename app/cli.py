@@ -180,6 +180,7 @@ async def run_simulate(args: argparse.Namespace) -> int:
         verbose=not args.quiet,
         attach=getattr(args, "attach", None),
         human_grace=getattr(args, "human_grace", 900),
+        signup_only=getattr(args, "signup_only", False),
     )
 
     try:
@@ -202,6 +203,17 @@ async def run_simulate(args: argparse.Namespace) -> int:
                     league = await sim.attach(config.attach, args.season)
                 else:
                     league = await sim.setup(args.season)
+
+                # Attach with --signup-only fills the roster and stops. The
+                # admin opens and closes signup, and starts the draft, from the
+                # panel — those are their buttons, not this command's.
+                if config.signup_only:
+                    # attach() has already said how many bots it added. Printing
+                    # a standings table here would show only zeros — there is no
+                    # draft and no scored race yet.
+                    await session.commit()
+                    return 0
+
                 await sim.run_draft(league)
                 await sim.run_season(league, through_round=args.through)
 
@@ -262,6 +274,14 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=900,
         help="seconds to wait for your pick before it is settled for you",
+    )
+    sim.add_argument(
+        "--signup-only",
+        action="store_true",
+        help=(
+            "Add the bots and stop, leaving the draft untouched. Use this to "
+            "fill signup from the panel afterwards."
+        ),
     )
     sim.add_argument("--quiet", action="store_true")
 
