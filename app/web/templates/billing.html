@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Billing — {{ league.name }}{% endblock %}
+
+{% block content %}
+{% set active_tab = 'billing' %}
+{% include "_league_tabs.html" %}
+
+{% set saved = request.query_params.get('saved') %}
+{% set error = request.query_params.get('error') %}
+{% if saved == 'subscribed' %}
+  <div class="banner banner--ok">Subscription active. Thank you.</div>
+{% endif %}
+{% if error %}
+  <div class="banner banner--err">
+    {%- if error == 'self-host' -%}This server has no billing configured — self-host is free.
+    {%- elif error == 'unconfigured' -%}Billing is not fully configured yet. Contact the host.
+    {%- elif error == 'cancelled' -%}Checkout cancelled. No charge was made.
+    {%- elif error == 'no-subscription' -%}No subscription yet — start one below.
+    {%- elif error == 'stripe' -%}Stripe was unreachable. Try again.
+    {%- else -%}{{ error.replace('-', ' ') }}{%- endif -%}
+  </div>
+{% endif %}
+
+<div style="max-width:640px;margin:24px auto" class="stack">
+  <section class="panel">
+    <div class="panel__head"><span class="panel__title">Billing — {{ league.name }}</span>
+      {% if is_paid %}<span class="state-tag state-tag--live">paid</span>
+      {% else %}<span class="state-tag state-tag--draft">unpaid</span>{% endif %}
+    </div>
+    <div class="panel__body stack">
+      {% if not hosted_mode %}
+        <p class="small muted" style="margin:0">
+          Self-hosted server — no billing configured and none needed.
+          This league is fully playable for free.
+        </p>
+      {% elif subscription and is_paid %}
+        <p style="margin:0">Plan <b>{{ subscription.plan }}</b>
+          {% if subscription.paid_until %} · paid until {{ subscription.paid_until }}{% endif %}</p>
+        <form method="post" action="/l/{{ league.code }}/billing/portal">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn--block" type="submit">Manage subscription</button>
+        </form>
+        <p class="hint muted" style="margin:0">Upgrades, downgrades, cancellation and failed payments live in the Stripe portal.</p>
+      {% else %}
+        <p class="small muted" style="margin:0">
+          Hosted league — unpaid. Reads stay public; admin actions need an active
+          subscription. Expired leagues go read-only, never deleted.
+        </p>
+        {% if billing_ready %}
+        <div class="row" style="gap:8px">
+          {% if has_monthly %}
+          <form method="post" action="/l/{{ league.code }}/billing/checkout" style="flex:1">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="cadence" value="monthly">
+            <button class="btn btn--block" type="submit">Subscribe monthly</button>
+          </form>
+          {% endif %}
+          {% if has_annual %}
+          <form method="post" action="/l/{{ league.code }}/billing/checkout" style="flex:1">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="cadence" value="annual">
+            <button class="btn btn--primary btn--block" type="submit">Subscribe yearly</button>
+          </form>
+          {% endif %}
+        </div>
+        {% else %}
+        <p class="small muted" style="margin:0">Checkout is not configured on this server yet.</p>
+        {% endif %}
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

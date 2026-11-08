@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Leagues{% endblock %}
+
+{% block content %}
+<div style="max-width:680px;margin:24px auto">
+  <div class="eyebrow">Public</div>
+  <h1 style="margin:0 0 18px;font-size:26px;letter-spacing:-.02em">Leagues</h1>
+
+  <section class="panel">
+    <div class="panel__body panel__body--flush">
+      {% if leagues %}
+      <table class="table">
+        <thead>
+          <tr><th>League</th><th>Season</th><th class="num">Players</th><th>State</th></tr>
+        </thead>
+        <tbody>
+          {% for lg in leagues %}
+          <tr>
+            <td><a href="/l/{{ lg.code }}">{{ lg.name }}</a></td>
+            <td class="muted">{{ lg.season_year }}</td>
+            <td class="num">{{ lg.team_count }}</td>
+            <td><span class="state-tag state-tag--{{ lg.state }}">{{ lg.state.replace('_', ' ') }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="panel__body">
+        <p class="muted small">No leagues yet. <a href="/signup">Start one</a>.</p>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

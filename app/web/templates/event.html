@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "macros.html" import driver_colour, pos %}
+
+{% block title %}{{ event.name }} — {{ league.name }}{% endblock %}
+
+{% block content %}
+{% include "_league_tabs.html" %}
+
+<div class="row row--between" style="margin-bottom:16px">
+  <div>
+    <div class="eyebrow" style="margin-bottom:4px">
+      {{ 'Sprint' if event.kind == 'sprint' else 'Race' }} · round {{ event.round }}
+    </div>
+    <h1 style="margin:0;font-size:26px;letter-spacing:-.02em">{{ event.name }}</h1>
+  </div>
+  <a class="btn" href="/l/{{ league.code }}">All standings</a>
+</div>
+
+<div class="stack">
+  {% for name, total in totals %}
+  <section class="panel">
+    <div class="panel__head">
+      <span class="panel__title">{{ pos(loop.index) }} {{ name }}</span>
+      <span class="small" style="font-weight:600">{{ total|pts }} pts</span>
+    </div>
+    <div class="panel__body panel__body--flush">
+      <table class="table">
+        <tbody>
+          {% for d in by_team[name] %}
+          <tr>
+            <td>{{ d.driver }}</td>
+            <td class="small muted">{{ driver_colour(d.constructor) }} {{ d.constructor }}</td>
+            <td class="num">{{ d.points|signed }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% else %}
+  <div class="panel"><div class="panel__body"><p class="muted small">No scores recorded for this event.</p></div></div>
+  {% endfor %}
+</div>
+{% endblock %}

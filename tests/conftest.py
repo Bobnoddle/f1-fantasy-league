@@ -1,0 +1,187 @@
+"""Fixtures for the web tests.
+
+The web layer is exercised against a real Postgres rather than mocks. Every bug
+found while building it — a lost commit, a stale session, an undefined template
+variable — was invisible to unit tests with a fake repository, and most are
+invisible to anything that is not a real request through the real app.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from datetime import UTC, datetime, timedelta
+
+import httpx
+import pytest
+
+from tests.helpers import SCHEMA, TEST_DATABASE, admin_dsn, database_name, raw_dsn, tables
+
+# Must be set before app.config is imported anywhere.
+os.environ.setdefault("DATABASE_URL", TEST_DATABASE)
+os.environ.setdefault("DISCORD_CLIENT_ID", "test")
+os.environ.setdefault("DISCORD_CLIENT_SECRET", "test")
+os.environ.setdefault("SESSION_SECRET", "test-only-not-a-real-secret")
+os.environ.setdefault("APP_URL", "http://testserver")
+
+
+@pytest.fixture(scope="session")
+def database() -> str:
+    """Create the test database and apply the schema, once per session."""
+    import asyncpg
+
+    async def setup():
+        name = database_name()
+        conn = await asyncpg.connect(admin_dsn())
+        try:
+            # Drop first: a stale database from an aborted run would otherwise
+            # carry a schema that no longer matches db/schema.sql.
+            await conn.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+            await conn.execute(f'CREATE DATABASE "{name}"')
+        finally:
+            await conn.close()
+
+        conn = await asyncpg.connect(raw_dsn())
+        try:
+            await conn.execute(SCHEMA.read_text(encoding="utf-8"))
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    return TEST_DATABASE
+
+
+@pytest.fixture
+def clean_database(database: str):
+    """Truncate every table so tests cannot leak state into each other."""
+    import asyncpg
+
+    async def wipe():
+        conn = await asyncpg.connect(raw_dsn())
+        try:
+            await conn.execute(f"TRUNCATE {', '.join(tables())} RESTART IDENTITY CASCADE")
+        finally:
+            await conn.close()
+
+    asyncio.run(wipe())
+    yield database
+
+
+@pytest.fixture(autouse=True)
+def stub_provider(monkeypatch):
+    """Never hit the network from a web test.
+
+    Only ``drivers`` was stubbed before. Seeding also calls ``event_result``
+    three times to work out who actually started, each a live HTTPS request to
+    api.jolpi.ca with up to three retries and a backoff — so every signup test
+    was quietly a network test, and CI started failing on upstream 429s that had
+    nothing to do with the code under test. The simulate job is what verifies
+    the real provider.
+
+    Round 1 is a full 20-car grid with five drivers lapped, which is what makes
+    the "lapped is still classified" scoring rule reachable from a web test.
+    """
+    from app.provider.base import Driver, DriverResult, EventResult, Race, Status
+    from app.provider.jolpica import JolpicaProvider
+
+    async def fake_drivers(self, season: int) -> list[Driver]:
+        return [
+            Driver(code=f"D{i:02d}", name=f"Driver {i:02d}", constructor="Test Racing")
+            for i in range(20)
+        ]
+
+    async def fake_event_result(self, season: int, round_number: int, kind):
+        if round_number != 1:
+            return None
+        return EventResult(
+            season=season,
+            round=1,
+            kind=kind,
+            name="Test Grand Prix",
+            results=[
+                DriverResult(
+                    code=f"D{i:02d}",
+                    status=Status.FINISHED if i < 15 else Status.LAPPED,
+                    position=i + 1,
+                    grid=i + 1,
+                    fastest_lap=(i == 3),
+                    quali=i // 2 + 1,
+                )
+                for i in range(20)
+            ],
+        )
+
+    async def fake_calendar(self, season: int):
+        return [
+            Race(
+                round=n,
+                name=f"Round {n}",
+                date=datetime(2025, 3, 1, tzinfo=UTC) + timedelta(days=14 * n),
+                sprint_date=None,
+            )
+            for n in range(1, 5)
+        ]
+
+    monkeypatch.setattr(JolpicaProvider, "drivers", fake_drivers)
+    monkeypatch.setattr(JolpicaProvider, "event_result", fake_event_result)
+    monkeypatch.setattr(JolpicaProvider, "calendar", fake_calendar)
+
+
+@pytest.fixture
+async def app(clean_database: str):
+    """A fresh application bound to the test database.
+
+    Disposes the engine on teardown. httpx's ASGITransport does not run the
+    app's lifespan, so the dispose that shutdown normally does never fires —
+    leaving one connection pool per test, which is what made the suite appear to
+    hang at exit rather than fail.
+
+    Async so the dispose happens on the test's own loop. Doing it via
+    asyncio.run() opened a second loop, and the pool's connections belong to the
+    first — producing "attached to a different loop" and "Event loop is closed"
+    noise that looked like an application fault.
+    """
+    from app.web.app import create_app
+
+    application = create_app()
+    yield application
+
+    engine = getattr(application.state, "engine", None)
+    if engine is not None:
+        await engine.dispose()
+
+
+@pytest.fixture
+def client(app):
+    """In-process HTTP client. Follows nothing, so redirects stay assertable."""
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+        follow_redirects=False,
+    )
+
+
+@pytest.fixture
+def fake_season(monkeypatch):
+    """Replace Jolpica with a fixed four-round season, sprints included.
+
+    Shared: the CLI and attach tests both need it, and a fixture defined in one
+    test module is invisible to the next.
+    """
+    from app.provider.jolpica import JolpicaProvider
+    from tests import sim_season
+
+    async def drivers(self, season: int):
+        return sim_season.drivers(season)
+
+    async def calendar(self, season: int):
+        return sim_season.calendar()
+
+    async def event_result(self, season: int, round_number: int, kind):
+        if kind == "sprint" and round_number not in sim_season.SPRINT_ROUNDS:
+            return None
+        return sim_season.event_result(round_number, kind)
+
+    monkeypatch.setattr(JolpicaProvider, "drivers", drivers)
+    monkeypatch.setattr(JolpicaProvider, "calendar", calendar)
+    monkeypatch.setattr(JolpicaProvider, "event_result", event_result)

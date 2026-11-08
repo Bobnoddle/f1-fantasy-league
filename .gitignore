@@ -67,3 +67,6 @@ logs/
 f1-fantasy-league.db
 f1-fantasy-league.db-shm
 f1-fantasy-league.db-wal
+
+# Browser automation artefacts
+.playwright-cli/

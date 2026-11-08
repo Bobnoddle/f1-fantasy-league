@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in{% endblock %}
+
+{% block content %}
+<div style="max-width:420px;margin:40px auto">
+  <div class="eyebrow">Welcome</div>
+  <h1 style="margin:0 0 18px;font-size:26px;letter-spacing:-.02em">Sign in to play</h1>
+
+  <section class="panel">
+    <div class="panel__body">
+      <form method="post" action="/login">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next" value="{{ next }}">
+        <div class="field">
+          <label>Display name</label>
+          <input type="text" name="display_name" required maxlength="80" autofocus
+                 placeholder="e.g. Dave">
+          <span class="hint">No password. This is how you appear on the leaderboard.</span>
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">Continue</button>
+      </form>
+    </div>
+  </section>
+
+  {% if discord_enabled %}
+  <p class="small muted center mt">
+    Discord sign-in is optional — <a href="/auth/discord">use Discord instead</a>
+  </p>
+  {% else %}
+  {# No Discord configured, so offering the button would only lead to an error. #}
+  <p class="small muted center mt">
+    You will get a link to sign back in. Keep it — it is your team.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% from "macros.html" import panel, panel_flush %}
+
+{% block title %}F1 Fantasy — run an F1 league in your browser{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <span class="eyebrow">Snake draft · full-field scoring · no bot required</span>
+  <h1>Run an F1 Fantasy league<br>without leaving the browser</h1>
+  <p>
+    Live snake drafting, every finishing position scoring, and results delivered to
+    your Discord channel automatically. Free to self-host, or hosted from $1 a month.
+  </p>
+  <div class="hero__actions">
+    <a class="btn btn--primary btn--lg" href="/signup">Start a league</a>
+    <a class="btn btn--lg" href="/pricing">Self-host instead</a>
+  </div>
+</section>
+
+<div class="stack" style="max-width: 860px; margin: 0 auto 40px">
+
+  {% call panel("What you get") %}
+  <div style="display:grid; gap:4px">
+    <div class="feature">
+      <span class="feature__icon">🎲</span>
+      <div>
+        <h3>Live snake draft</h3>
+        <p>Randomised order, auto-scaled team sizes, and a pick timer that auto-picks
+           if someone goes quiet. No Discord commands to memorise.</p>
+      </div>
+    </div>
+    <div class="feature">
+      <span class="feature__icon">🏁</span>
+      <div>
+        <h3>All twenty positions score</h3>
+        <p>A midfield driver who over-performs can outscore a front-runner who
+           under-performs. Position gains and fastest laps are rewarded.</p>
+      </div>
+    </div>
+    <div class="feature">
+      <span class="feature__icon">📊</span>
+      <div>
+        <h3>Results post themselves</h3>
+        <p>Standings and every race breakdown land in your Discord channel. The
+           channel is the notification surface — the game is played on the web.</p>
+      </div>
+    </div>
+    <div class="feature">
+      <span class="feature__icon">🪪</span>
+      <div>
+        <h3>Discord optional</h3>
+        <p>Run it entirely without Discord. Add a webhook when you want results in
+           your channel. Players need no Discord account at all.</p>
+      </div>
+    </div>
+  </div>
+  {% endcall %}
+
+  {% call panel("How a season runs") %}
+  <div style="display:grid; gap:10px">
+    {% set steps = [
+      ('1', 'Create a league', 'Name it, pick a season, paste your Discord webhook if you want one.'),
+      ('2', 'Share the signup link', 'Players join in one click. The Discord call updates live as they do.'),
+      ('3', 'Draft', 'Snake order, timed picks, auto-picks on timeout. Works on a phone.'),
+      ('4', 'Race weeks', 'Results are fetched, scored, and posted automatically. You do nothing.')
+    ] %}
+    {% for n, title, body in steps %}
+    <div class="row" style="gap:14px; align-items:flex-start">
+      <span class="state-tag" style="margin-top:2px">{{ n }}</span>
+      <div>
+        <div style="font-weight:600">{{ title }}</div>
+        <div class="small muted">{{ body }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="mt">
+    <a class="btn btn--primary" href="/signup">Create your league</a>
+  </div>
+  {% endcall %}
+
+  {% call panel_flush("Live right now", "public leagues") %}
+  {% if leagues %}
+  <table class="table">
+    <thead>
+      <tr><th>League</th><th>Season</th><th class="num">Players</th><th>State</th><th class="num">Rounds</th></tr>
+    </thead>
+    <tbody>
+      {% for lg in leagues %}
+      <tr>
+        <td><a href="/l/{{ lg.code }}">{{ lg.name }}</a></td>
+        <td>{{ lg.season_year }}</td>
+        <td class="num">{{ lg.team_count }}</td>
+        <td><span class="state-tag state-tag--{{ lg.state }}">{{ lg.state.replace('_', ' ') }}</span></td>
+        <td class="num">{{ lg.scored }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="panel__body">
+    <p class="muted small" style="margin:0">
+      No public leagues yet. <a href="/signup">Be the first to start one</a>.
+    </p>
+  </div>
+  {% endif %}
+  {% endcall %}
+
+  {% call panel("Checked against real data") %}
+  <div class="grid-2">
+    <p class="small muted" style="margin:0">
+      Scoring was validated across 64 real races from 2024–2026 to check the point
+      spread stays competitive. A midfield car finishing P6 has to be worth drafting,
+      and a DNF has to actually hurt.
+    </p>
+    <p class="small muted" style="margin:0">
+      Every finishing status is validated before it scores. A driver reported as
+      &ldquo;lapped&rdquo; is a classified finisher, not a retirement — getting that
+      wrong silently suppressed a quarter of all points in an earlier version.
+    </p>
+  </div>
+  {% endcall %}
+
+</div>
+{% endblock %}
