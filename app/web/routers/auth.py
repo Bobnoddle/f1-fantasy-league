@@ -354,7 +354,10 @@ async def do_join(
     added = await repo.join(league.id, player)
     if added is not None:
         count = await db.scalar(select(func.count(Team.id)).where(Team.league_id == league.id))
-        await repo.notifier_for(league).signup_updated(repo.context(league), count or 0, 0)
+        key = request.app.state.settings.token_encryption_key
+        await repo.notifier_for(league, key=key).signup_updated(
+            repo.context(league, key=key), count or 0, 0
+        )
         if league.state == "created":
             await repo.set_state(league.id, "signup_open")
 

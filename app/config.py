@@ -51,6 +51,9 @@ class Settings:
 
     # Optional — absent in self-hosted mode.
     stripe_secret_key: str | None = None
+    stripe_price_monthly: str | None = None
+    stripe_price_annual: str | None = None
+    stripe_webhook_secret: str | None = None
     token_encryption_key: str | None = None
 
     # Discord OAuth redirect, derived from app_url when unset.
@@ -81,6 +84,9 @@ class Settings:
             session_secret=_require("SESSION_SECRET"),
             app_url=app_url,
             stripe_secret_key=os.getenv("STRIPE_SECRET_KEY") or None,
+            stripe_price_monthly=os.getenv("STRIPE_PRICE_MONTHLY") or None,
+            stripe_price_annual=os.getenv("STRIPE_PRICE_ANNUAL") or None,
+            stripe_webhook_secret=os.getenv("STRIPE_WEBHOOK_SECRET") or None,
             token_encryption_key=os.getenv("TOKEN_ENCRYPTION_KEY") or None,
             discord_redirect_uri=os.getenv(
                 "DISCORD_REDIRECT_URI", f"{app_url}/auth/discord/callback"
@@ -99,6 +105,18 @@ class Settings:
         Business logic must never branch on this. It gates access only.
         """
         return self.stripe_secret_key is not None
+
+    @property
+    def billing_ready(self) -> bool:
+        """True when checkout can actually run.
+
+        Secret alone is not enough — without price IDs the pricing page
+        would offer a button that always fails. Self-hosters leave all
+        four unset and get a billing-free app.
+        """
+        return bool(
+            self.stripe_secret_key and (self.stripe_price_monthly or self.stripe_price_annual)
+        )
 
 
 @lru_cache(maxsize=1)

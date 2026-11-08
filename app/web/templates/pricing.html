@@ -53,7 +53,11 @@
           <li>Email us if something breaks</li>
         </ul>
         <a class="btn btn--primary btn--block" href="/signup">Start on the hosted tier</a>
-        <p class="hint muted" style="margin:0">Just bring your Discord webhook.</p>
+        {% if not billing_ready %}
+        <p class="hint muted" style="margin:0">Checkout is not enabled on this server yet — create a league and the billing page will say so.</p>
+        {% else %}
+        <p class="hint muted" style="margin:0">Per-league checkout after signup. Just bring your Discord webhook.</p>
+        {% endif %}
       </div>
     </section>
   </div>

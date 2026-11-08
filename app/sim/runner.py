@@ -533,10 +533,13 @@ class Simulator:
     async def _announce_results(
         self, league: League, round_number: int, kind: Kind, standings
     ) -> None:
-        notifier = self.repo.notifier_for(league)
+        from app.config import get_settings
+
+        _key = get_settings().token_encryption_key
+        notifier = self.repo.notifier_for(league, key=_key)
         if self.cfg.discord:
             await notifier.results_posted(
-                self.repo.context(league), f"R{round_number}", str(kind), standings
+                self.repo.context(league, key=_key), f"R{round_number}", str(kind), standings
             )
         elif self.cfg.verbose:
             event = await self.s.scalar(

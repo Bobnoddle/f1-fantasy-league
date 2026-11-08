@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS league (
     pick_deadline   int  NOT NULL DEFAULT 600 CHECK (pick_deadline > 0),
     admin_player_id uuid REFERENCES player(id),  -- gates the admin panel
     webhook_id      text,
-    webhook_token   text,          -- encrypted at rest in hosted mode
+    webhook_token   text,          -- Fernet-encrypted (enc:v1:…) when TOKEN_ENCRYPTION_KEY is set
     signup_message_id text,        -- for edit-in-place signup updates
     created_at      timestamptz NOT NULL DEFAULT now(),
     archived_at     timestamptz

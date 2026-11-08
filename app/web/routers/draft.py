@@ -52,7 +52,7 @@ async def draft_hub(code: str, request: Request, db: AsyncSession = Depends(get_
         )
 
     # The one call that makes the whole timeout design work.
-    service, drepo = _service(db, league, repo)
+    service, drepo = _service(db, league, repo, key=request.app.state.settings.token_encryption_key)
     rolled = await service.advance_if_expired(
         league.id,
         await _grid_size(db, league),
@@ -141,7 +141,7 @@ async def pick_page(code: str, request: Request, db: AsyncSession = Depends(get_
         raise NotFoundError(f"No league called {code!r}")
 
     league = await repo.get(league.id)
-    service, drepo = _service(db, league, repo)
+    service, drepo = _service(db, league, repo, key=request.app.state.settings.token_encryption_key)
     names = {
         t.id: t.display_name
         for t in (await db.scalars(select(Team).where(Team.league_id == league.id))).all()
@@ -217,7 +217,7 @@ async def make_pick(
         raise NotFoundError(f"No league called {code!r}")
 
     league = await repo.get(league.id)
-    service, drepo = _service(db, league, repo)
+    service, drepo = _service(db, league, repo, key=request.app.state.settings.token_encryption_key)
     names = {
         t.id: t.display_name
         for t in (await db.scalars(select(Team).where(Team.league_id == league.id))).all()
@@ -248,9 +248,9 @@ async def make_pick(
     return RedirectResponse(f"/l/{league.code}/draft?picked=1", status_code=303)
 
 
-def _service(db, league, repo):
+def _service(db, league, repo, *, key: str | None = None):
     drepo = PostgresDraftRepo(db)
-    return DraftService(drepo, repo.notifier_for(league)), drepo
+    return DraftService(drepo, repo.notifier_for(league, key=key)), drepo
 
 
 async def _ordered_teams(db: AsyncSession, league: League) -> list[Team]:

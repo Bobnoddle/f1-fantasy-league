@@ -81,6 +81,8 @@ def create_app() -> FastAPI:
     # Global rather than passed per render: whether Discord exists is a property
     # of the deployment, and forgetting it in one router means a dead button.
     templates.env.globals["discord_enabled"] = bool(settings.discord_client_id)
+    templates.env.globals["hosted_mode"] = settings.hosted_mode
+    templates.env.globals["billing_ready"] = settings.billing_ready
     templates.env.filters["pts"] = lambda v: f"{float(v or 0):,.0f}"
     templates.env.filters["signed"] = lambda v: f"{float(v or 0):+,.0f}"
     app.state.templates = templates
@@ -148,13 +150,14 @@ def create_app() -> FastAPI:
             status_code=403,
         )
 
-    from app.web.routers import admin, auth, draft, league, public
+    from app.web.routers import admin, auth, billing, draft, league, public
 
     app.include_router(public.router)
     app.include_router(auth.router)
     app.include_router(league.router)
     app.include_router(draft.router)
     app.include_router(admin.router)
+    app.include_router(billing.router)
 
     @app.get("/health")
     async def health() -> JSONResponse:

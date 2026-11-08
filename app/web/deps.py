@@ -99,6 +99,11 @@ async def csrf_guard(request: Request) -> None:
     if request.method not in _UNSAFE_METHODS:
         return
 
+    # Stripe signs its own webhooks; it has no session cookie and no CSRF token.
+    # Signature verification happens in the route itself.
+    if request.url.path == "/billing/webhook":
+        return
+
     session: Session = request.state.session
     supplied = request.headers.get(CSRF_HEADER)
     if supplied is None:

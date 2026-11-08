@@ -18,9 +18,17 @@ router = APIRouter()
 async def pricing(request: Request):
     """Self-host vs hosted, with a monthly/annual toggle on the hosted price.
 
-    The toggle is display-only for now — it switches four numbers in the page.
-    Wiring it to real Stripe price ids is a billing task, not a UI one.
+    Honest about state: when Stripe is unconfigured the hosted column says so
+    rather than offering a checkout that cannot work. Per-league checkout lives
+    on /l/{code}/billing after signup — pricing never charges directly.
     """
+    settings = request.app.state.settings
     return request.app.state.templates.TemplateResponse(
-        request, "pricing.html", {"player": await optional_player(request)}
+        request,
+        "pricing.html",
+        {
+            "player": await optional_player(request),
+            "hosted_mode": settings.hosted_mode,
+            "billing_ready": settings.billing_ready,
+        },
     )

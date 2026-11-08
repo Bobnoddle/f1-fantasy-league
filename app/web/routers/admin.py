@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import billing as billing_svc
 from app.domain.draft import team_size as calc_team_size
 from app.models import (
     Draft,
@@ -91,6 +92,8 @@ async def save_settings(
     await require_admin(request, code)
     repo = LeagueRepo(db)
     league = await repo.by_code(code)
+    if not await billing_svc.ensure_paid_for_admin(db, league.id, request.app.state.settings):
+        return RedirectResponse(f"/l/{league.code}/billing?error=payment-required", status_code=303)
 
     league.name = name.strip()[:120] or league.name
     league.season_year = int(season_year)
@@ -111,7 +114,8 @@ async def save_webhook(
     """Store or clear the Discord webhook.
 
     Only the two id/token segments are kept — a pasted URL is a credential, and
-    storing it whole means it turns up in logs.
+    storing it whole means it turns up in logs. The token is encrypted at rest
+    when TOKEN_ENCRYPTION_KEY is set, plaintext otherwise (self-host default).
     """
     await require_admin(request, code)
     repo = LeagueRepo(db)
@@ -128,8 +132,10 @@ async def save_webhook(
     if not (webhook_id and token):
         return RedirectResponse(f"/l/{league.code}/admin?error=bad-webhook", status_code=303)
 
+    from app.discord.tokens import encrypt_token
+
     league.webhook_id = webhook_id
-    league.webhook_token = token
+    league.webhook_token = encrypt_token(token, request.app.state.settings.token_encryption_key)
     await db.flush()
 
     return RedirectResponse(f"/l/{league.code}/admin?saved=webhook", status_code=303)
@@ -142,7 +148,7 @@ async def test_webhook(code: str, request: Request, db: AsyncSession = Depends(g
     repo = LeagueRepo(db)
     league = await repo.by_code(code)
 
-    notifier = repo.notifier_for(league)
+    notifier = repo.notifier_for(league, key=request.app.state.settings.token_encryption_key)
     try:
         await notifier.test()
         status = "ok"
@@ -165,7 +171,9 @@ async def lifecycle_action(
     await require_admin(request, code)
     repo = LeagueRepo(db)
     league = await repo.by_code(code)
-    notifier = repo.notifier_for(league)
+    if not await billing_svc.ensure_paid_for_admin(db, league.id, request.app.state.settings):
+        return RedirectResponse(f"/l/{league.code}/billing?error=payment-required", status_code=303)
+    notifier = repo.notifier_for(league, key=request.app.state.settings.token_encryption_key)
 
     teams = await db.scalar(select(func.count(Team.id)).where(Team.league_id == league.id)) or 0
 

@@ -107,7 +107,8 @@ class League(Base):
         UUID(as_uuid=True), ForeignKey("player.id")
     )
     webhook_id: Mapped[str | None] = mapped_column(String(32))
-    webhook_token: Mapped[str | None] = mapped_column(Text)  # encrypted at rest
+    # Fernet-encrypted (enc:v1:…) when TOKEN_ENCRYPTION_KEY is set, else plaintext.
+    webhook_token: Mapped[str | None] = mapped_column(Text)
     signup_message_id: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

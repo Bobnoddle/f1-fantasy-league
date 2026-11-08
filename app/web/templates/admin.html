@@ -163,6 +163,9 @@
     <section class="panel">
       <div class="panel__head"><span class="panel__title">Season</span></div>
       <div class="panel__body stack">
+        {% if hosted_mode %}
+        <p class="small" style="margin:0"><a href="/l/{{ league.code }}/billing">Billing</a> — hosted leagues need an active subscription for admin changes.</p>
+        {% endif %}
         <p class="small muted" style="margin:0">
           {{ scored }} event{{ 's' if scored != 1 }} scored so far this season.
         </p>

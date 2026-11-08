@@ -22,6 +22,7 @@ from app.domain.scoring import rank, score
 from app.models import Driver, Event, League, Score
 from app.models import Result as ResultRow
 from app.provider.base import F1Provider, Kind, ProviderError, Status
+from app.provider.cached import CachedProvider
 from app.provider.jolpica import JolpicaProvider
 from app.repo.postgres import LeagueRepo
 
@@ -274,7 +275,7 @@ async def score_recent_events(
     This is what the Railway cron service calls. Safe to run repeatedly.
     """
     owns_provider = provider is None
-    provider = provider or JolpicaProvider()
+    provider = provider or CachedProvider(JolpicaProvider())
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     scored_total = 0
@@ -333,9 +334,12 @@ async def score_recent_events(
 
                             _, standings = outcome
                             scored_total += 1
-                            notifier = repo.notifier_for(fresh)
+                            from app.config import get_settings
+
+                            _key = get_settings().token_encryption_key
+                            notifier = repo.notifier_for(fresh, key=_key)
                             await notifier.results_posted(
-                                repo.context(fresh),
+                                repo.context(fresh, key=_key),
                                 race.name,
                                 str(kind),
                                 standings,

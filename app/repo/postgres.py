@@ -274,18 +274,20 @@ class LeagueRepo:
         return league is not None and league.admin_player_id == player.id
 
     @staticmethod
-    def context(league: League) -> LeagueContext:
+    def context(league: League, *, key: str | None = None) -> LeagueContext:
+        from app.discord.tokens import decrypt_token
+
         return LeagueContext(
             id=league.id,
             code=league.code,
             name=league.name,
             season_year=league.season_year,
             webhook_id=league.webhook_id,
-            webhook_token=league.webhook_token,
+            webhook_token=decrypt_token(league.webhook_token, key),
         )
 
     @staticmethod
-    def notifier_for(league: League) -> Notifier:
+    def notifier_for(league: League, *, key: str | None = None) -> Notifier:
         """Pick a notifier from configuration.
 
         A league with no webhook is still fully playable — it just announces
@@ -294,5 +296,5 @@ class LeagueRepo:
         from app.discord.webhook import DiscordNotifier
 
         if league.webhook_id and league.webhook_token:
-            return DiscordNotifier(LeagueRepo.context(league))
+            return DiscordNotifier(LeagueRepo.context(league, key=key))
         return NullNotifier()
